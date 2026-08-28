@@ -36,6 +36,11 @@ ck "missing \$TMUX_PANE refused (nonzero)" "[ $RC -ne 0 ]"
 mkdir -p "$T/plain"
 ( cd "$T/plain" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" '/compact y' >/dev/null 2>&1 ); RC=$?
 ck "no agent_notes/ refused (nonzero)" "[ $RC -ne 0 ]"
+( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" '/compact keep z' --then '' >/dev/null )
+J8="$REPO/.claude/autoresearch/compact_request_p8.json"
+ck "--then after the command: '' means no follow-up, flag not leaked into the message" "grep -q '\"then\": \"\"' '$J8' && grep -q '\"command\": \"/compact keep z\"' '$J8'"
+( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" '/compact keep z' --then 'go on' >/dev/null )
+ck "--then after the command: custom follow-up recorded" "grep -q '\"then\": \"go on\"' '$J8'"
 
 echo '=== 2. tmux_deliver.py logic (fake tmux shim) ==='
 FTLOG="$T/ft2.log"

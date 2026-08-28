@@ -2,7 +2,7 @@
 """Agent-side: queue a compact for the Stop hook to deliver.
 
     python3 ~/.claude/skills/autoresearch/scripts/request_compact.py "/compact <msg>"
-    python3 ~/.claude/skills/autoresearch/scripts/request_compact.py --then "<text>" "/compact <msg>"
+    python3 ~/.claude/skills/autoresearch/scripts/request_compact.py "/compact <msg>" --then "<text>"
 
 Writes <cwd>/.claude/autoresearch/compact_request_<pane>.json, keyed by this
 session's tmux pane ($TMUX_PANE, e.g. %3 -> p3) so several agents in the same
@@ -11,7 +11,8 @@ Stop hook (hooks/context_watch.py) of the same pane reads the file and types
 the command into that pane via tmux_deliver.py. Only /compact and /clear are
 accepted. After the compaction finishes, the follow-up text given by --then
 (default "continue") is typed so the session resumes on its own; --then ""
-sends nothing. The follow-up is a plain message, it may not start with "/".
+sends nothing. --then may appear before or after the command. The follow-up
+is a plain message, it may not start with "/".
 """
 import json
 import os
@@ -21,14 +22,27 @@ import time
 ALLOWED = ("/compact", "/clear")
 
 
+def parse(argv):
+    """Return (command, then). --then TEXT is accepted anywhere; everything
+    else is joined into the command."""
+    then, rest = "continue", []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--then":
+            if i + 1 >= len(argv):
+                sys.exit("request_compact: --then needs a value (use --then \"\" for none)")
+            then = argv[i + 1].strip()
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+    return " ".join(rest).strip(), then
+
+
 def main():
-    args = sys.argv[1:]
-    then = "continue"
-    if len(args) >= 2 and args[0] == "--then":
-        then, args = args[1].strip(), args[2:]
-    if not args or not " ".join(args).strip():
-        sys.exit("request_compact: usage: request_compact.py [--then TEXT] \"/compact <msg>\"")
-    command = " ".join(args).strip()
+    command, then = parse(sys.argv[1:])
+    if not command:
+        sys.exit("request_compact: usage: request_compact.py \"/compact <msg>\" [--then TEXT]")
     if command.split()[0] not in ALLOWED:
         sys.exit("request_compact: refused, command must start with one of %s"
                  % ", ".join(ALLOWED))
@@ -54,7 +68,7 @@ def main():
     os.replace(tmp, final)
     print("compact request queued: %s" % final)
     print("End your reply now; the Stop hook delivers it into pane %s%s." % (
-        pane, (", then types %r" % then) if then else ""))
+        pane, (", then types %r" % then) if then else ", no follow-up"))
 
 
 if __name__ == "__main__":
