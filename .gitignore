@@ -2,9 +2,9 @@
 source_docs/
 trash/
 .claude/
-Autoresearch design.md
-compact_guidelines.md
-subagent_playbook.md
+/Autoresearch design.md
+/compact_guidelines.md
+/subagent_playbook.md
 
 # never commit credentials
 telegram.env
