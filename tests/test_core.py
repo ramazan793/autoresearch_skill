@@ -133,6 +133,15 @@ try:
 except ValueError:
     out3 = {}
 check("watch: re-arms after reset", out3.get("decision") == "block", r.stdout[:100])
+r = stop_hook(200000, research)
+check("watch: context shrank below the last nudge (compact) -> silent + re-armed", r.stdout.strip() == "")
+r = stop_hook(255000, research)
+try:
+    out3b = json.loads(r.stdout)
+except ValueError:
+    out3b = {}
+check("watch: first crossing after a compact nudges again without waiting +STEP",
+      out3b.get("decision") == "block", r.stdout[:100])
 plain = os.path.join(T, "plain")
 os.makedirs(plain)
 r = stop_hook(400000, plain)
@@ -161,19 +170,19 @@ check("watch: subagent without own transcript -> silent (main ctx ignored)",
       r.stdout.strip() == "", r.stdout[:80])
 
 
-def sub_hook(ctx_tokens, event="PostToolUse"):
+def sub_hook(ctx_tokens, event="PostToolUse", aid="a1", env=None):
     sub_dir = os.path.join(T, "s1", "subagents")
     os.makedirs(sub_dir, exist_ok=True)
-    sub = os.path.join(sub_dir, "agent-a1.jsonl")
-    open(sub, "w").write(json.dumps({"type": "assistant", "isSidechain": True, "agentId": "a1",
+    sub = os.path.join(sub_dir, "agent-%s.jsonl" % aid)
+    open(sub, "w").write(json.dumps({"type": "assistant", "isSidechain": True, "agentId": aid,
                                      "message": {"model": "claude-fable-5",
                                                  "usage": {"input_tokens": 500,
                                                            "cache_read_input_tokens": ctx_tokens - 1000,
                                                            "cache_creation_input_tokens": 500}}}) + "\n")
     payload = {"session_id": "s1", "transcript_path": transcript, "cwd": research,
-               "hook_event_name": event, "tool_name": "Bash", "agent_id": "a1",
+               "hook_event_name": event, "tool_name": "Bash", "agent_id": aid,
                "agent_type": "general-purpose", "stop_hook_active": False}
-    return run([sys.executable, os.path.join(HK, "context_watch.py")], input=json.dumps(payload))
+    return run([sys.executable, os.path.join(HK, "context_watch.py")], input=json.dumps(payload), env=env)
 
 
 r = sub_hook(300000)
@@ -190,6 +199,16 @@ r = sub_hook(370000)
 check("subwatch: dampened", r.stdout.strip() == "", r.stdout[:80])
 r = sub_hook(900000, event="Stop")
 check("subwatch: Stop with agent_id never blocks/delivers", r.stdout.strip() == "", r.stdout[:80])
+env_low = dict(os.environ)
+env_low["AUTORESEARCH_SUB_CTX_LIMIT"] = "10000"
+r = sub_hook(20000, aid="a2", env=env_low)
+check("subwatch: limit below the subagent's start context -> first call silent (floor)",
+      r.stdout.strip() == "", r.stdout[:80])
+r = sub_hook(22000, aid="a2", env=env_low)
+check("subwatch: +2k growth still under the 5k floor -> silent", r.stdout.strip() == "", r.stdout[:80])
+r = sub_hook(40000, aid="a2", env=env_low)
+check("subwatch: grown past the floor and over the limit -> hand-off nudge",
+      "return to the main agent" in r.stdout and "40k" in r.stdout, r.stdout[:80])
 
 req_dir = os.path.join(research, ".claude", "autoresearch")
 os.makedirs(req_dir, exist_ok=True)
@@ -204,6 +223,7 @@ env_p5["PATH"] = os.path.join(SRC, "tests/helpers/faketmux") + os.pathsep + env_
 env_p5["FT_LOG"] = os.path.join(T, "ft_core.log")
 env_p5["FT_STATE"] = os.path.join(T, "ft_core.state")
 env_p5["FT_BUSY_CALLS"] = "0"
+env_p5["DELIVER_BUSY_WAIT"] = "0"
 os.chmod(os.path.join(SRC, "tests/helpers/faketmux/tmux"), 0o755)
 write_transcript(500000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,

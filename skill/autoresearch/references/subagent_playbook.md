@@ -86,8 +86,9 @@ subagents produce raw material; only the main agent writes canonical artifacts.
   file and reports; the main agent spawns a successor pointed at that file.
   The context-watch hook enforces this: above `AUTORESEARCH_SUB_CTX_LIMIT`
   (default 350k) the subagent gets a `[context-watch]` hand-off nudge after its
-  next tool call. Every handoff file must therefore name the scratch/state
-  path the subagent writes to.
+  next tool call — but never before it has grown 5k past its start context
+  (~20k), so a successor always makes progress first. Every handoff file must
+  therefore name the scratch/state path the subagent writes to.
 - The main agent's own context is governed by the compact protocol
   (`compact_protocol.md`); subagents never compact.
 

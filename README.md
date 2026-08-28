@@ -107,17 +107,23 @@ has no pane). The hook watches each subagent's own transcript instead
 (`<session>/subagents/agent-<id>.jsonl`): above `AUTORESEARCH_SUB_CTX_LIMIT`
 (default 350000) it tells the subagent to write its state to its handoff file
 and return, so the main agent spawns a fresh successor (the playbook's
-fresh-context rule, enforced by the hook).
+fresh-context rule, enforced by the hook). A subagent starts at ~20k tokens
+(system prompt + tools; measured on 2.1.251) and is never nudged before it has
+grown `AUTORESEARCH_SUB_MIN_GROWTH` (default 5000) past its first measurement,
+so a limit below its start context cannot livelock the successor chain.
 
 **After the compact** the session would sit at the prompt (the SessionStart
 hook only injects STATE.md, it does not start a turn), so the worker waits for
-the compacting spinner to clear and types a follow-up — `continue` by default,
+the compacting spinner to appear (≤ `DELIVER_BUSY_WAIT` s, default 15) and
+clear, then types a follow-up — `continue` by default,
 `request_compact.py --then "<text>"` to change it, `--then ""` for none. The
 follow-up is a plain message; slash commands are refused there.
 
 Knobs: `AUTORESEARCH_CTX_LIMIT` (default 250000), `AUTORESEARCH_SUB_CTX_LIMIT`
-(default 350000), `AUTORESEARCH_CTX_STEP` (re-nudge step, default 40000) — env
-vars. The watcher and the notification
+(default 350000), `AUTORESEARCH_SUB_MIN_GROWTH` (default 5000),
+`AUTORESEARCH_CTX_STEP` (re-nudge step, default 40000; the dampener re-arms as
+soon as the context shrinks, i.e. after any compact or `/clear`),
+`DELIVER_BUSY_WAIT` (default 15) — env vars. The watcher and the notification
 hooks are inert outside research repos (they require an `agent_notes/` dir in
 the cwd), so ordinary sessions never get nudged or pinged.
 
@@ -161,8 +167,9 @@ it; you empty `trash/` manually.
   `$TMUX_PANE` or `agent_notes/`.
 - `tmux_deliver.py [--pane P] [--delay S] [--max-wait S] [--then TEXT] [--now] -- TEXT`
   — spawned by the Stop hook (detached); busy while the pane shows a spinner
-  line (`…(Ns` in Claude Code 2.1, `esc to interrupt` in older builds);
-  `--then` types the follow-up once the pane is idle again.
+  line (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to
+  interrupt` in older builds); `--then` waits for the compacting spinner to
+  appear and clear, then types the follow-up.
 
 ## Install
 

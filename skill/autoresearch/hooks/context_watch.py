@@ -12,11 +12,15 @@ several agents in the same repo do not touch each other's state.
    (default 250000). Stop: blocks the stop with the nudge as reason.
    PostToolUse: injects the nudge as additionalContext mid-turn. One nudge per
    threshold crossing; re-nudges after AUTORESEARCH_CTX_STEP tokens of
-   further growth (state in ctx_<pane>.json).
+   further growth. The dampener resets as soon as the context shrinks (a
+   compact or /clear happened). State in ctx_<pane>.json.
 3. Subagent watch (PostToolUse with agent_id in the hook input): reads the
    subagent's own transcript; above AUTORESEARCH_SUB_CTX_LIMIT (default
    350000) tells it to write its state to its handoff file and return, so the
    main agent spawns a fresh successor (state in ctx_sub_<agent_id>.json).
+   A subagent starts at ~20k (system prompt + tools) and is never nudged before
+   it has grown AUTORESEARCH_SUB_MIN_GROWTH tokens (default 5000) past its
+   first measurement, so a limit below the floor cannot livelock successors.
    Subagents never compact and never deliver.
 
 Active only in repos that have an agent_notes/ dir. Fails open on any error.
@@ -28,6 +32,7 @@ import sys
 
 LIMIT = int(os.environ.get("AUTORESEARCH_CTX_LIMIT", 250000))
 SUB_LIMIT = int(os.environ.get("AUTORESEARCH_SUB_CTX_LIMIT", 350000))
+SUB_MIN_GROWTH = int(os.environ.get("AUTORESEARCH_SUB_MIN_GROWTH", 5000))
 STEP = int(os.environ.get("AUTORESEARCH_CTX_STEP", 40000))
 TAIL_BYTES = 8 * 1024 * 1024
 ALLOWED = ("/compact", "/clear")
@@ -110,29 +115,38 @@ def context_tokens(transcript_path, sidechain=False):
     return None
 
 
-def save_state(path, session_id, last_nudge_ctx):
+def load_state(path, session_id):
+    """State dict for this session; empty if the file belongs to another one."""
+    try:
+        with open(path) as f:
+            state = json.load(f)
+    except Exception:
+        return {}
+    return state if state.get("session_id") == session_id else {}
+
+
+def save_state(path, session_id, **fields):
+    state = load_state(path, session_id)
+    state.update(fields, session_id=session_id)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump({"session_id": session_id, "last_nudge_ctx": last_nudge_ctx}, f)
+            json.dump(state, f)
     except Exception:
         pass
 
 
 def nudge_once(state_path, sid, ctx, limit):
-    """True if a nudge is due now (first crossing, or +STEP since the last)."""
-    state = {}
-    try:
-        with open(state_path) as f:
-            state = json.load(f)
-    except Exception:
-        pass
-    last = state.get("last_nudge_ctx", 0) if state.get("session_id") == sid else 0
+    """True if a nudge is due now: first crossing of `limit`, or +STEP since
+    the last nudge. Context only shrinks when a compact (or /clear) happened,
+    so a measurement below the last nudge point re-arms the watch."""
+    last = load_state(state_path, sid).get("last_nudge_ctx", 0)
+    if last and ctx < last:
+        save_state(state_path, sid, last_nudge_ctx=0)
+        last = 0
     if ctx > limit and ctx >= last + (STEP if last else 0):
-        save_state(state_path, sid, ctx)
+        save_state(state_path, sid, last_nudge_ctx=ctx)
         return True
-    if ctx < limit // 2 and last:
-        save_state(state_path, sid, 0)
     return False
 
 
@@ -149,7 +163,14 @@ def watch_subagent(data, state_dir):
     ctx = context_tokens(sub, sidechain=True)
     if ctx is None:
         return
-    if nudge_once(os.path.join(state_dir, "ctx_sub_%s.json" % aid), sid, ctx, SUB_LIMIT):
+    state_path = os.path.join(state_dir, "ctx_sub_%s.json" % aid)
+    first = load_state(state_path, sid).get("first_ctx")
+    if first is None:
+        save_state(state_path, sid, first_ctx=ctx)
+        first = ctx
+    if ctx < first + SUB_MIN_GROWTH:
+        return
+    if nudge_once(state_path, sid, ctx, SUB_LIMIT):
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": data.get("hook_event_name") or "PostToolUse",
             "additionalContext": SUB_NUDGE.format(ctx=ctx // 1000, limit=SUB_LIMIT // 1000)}}))

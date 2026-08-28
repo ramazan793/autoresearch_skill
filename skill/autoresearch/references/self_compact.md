@@ -18,15 +18,17 @@ in `$TMUX_PANE`.
    `scripts/tmux_deliver.py` detached (double fork + setsid), then exits.
    Requests of other panes (other agents in the same repo) are left alone.
 3. Worker: waits 3 s, polls `tmux capture-pane` until no spinner line is shown
-   (`…(Ns` in Claude Code 2.1, `esc to interrupt` in older builds), types the
-   text with `send-keys -l`, 0.5 s later sends Enter as a separate key event.
-   Log: `<repo>/.claude/autoresearch/deliver.log`. On failure it TG-pings the
-   line for the user to paste.
+   (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to interrupt`
+   in older builds), types the text with `send-keys -l`, 0.5 s later sends
+   Enter as a separate key event. Log: `<repo>/.claude/autoresearch/deliver.log`.
+   On failure it TG-pings the line for the user to paste.
 4. Compaction runs; the SessionStart(compact) hook restores `STATE.md`.
-5. The worker waits for the compacting spinner to clear and types the
-   follow-up (`continue` by default; `request_compact.py --then "<text>"`
-   to change it, `--then ""` for none; plain messages only). The session
-   resumes on its own.
+5. The worker waits for the compacting spinner to appear (≤ 15 s,
+   `DELIVER_BUSY_WAIT`) and then to clear, and types the follow-up
+   (`continue` by default; `request_compact.py --then "<text>"` to change it,
+   `--then ""` for none; plain messages only). The session resumes on its
+   own. If the follow-up lands while the TUI is still busy, Claude Code
+   queues it and runs it right after the compact (observed on 2.1.251).
 
 ## Requirements
 

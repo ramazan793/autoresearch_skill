@@ -14,11 +14,14 @@ screen shows a spinner line such as "Wrangling… (3s · ↓ 24 tokens)" or
 "Compacting conversation… (24s)" (Claude Code 2.1) or "esc to interrupt"
 (older builds). The text is sent with send-keys -l, then Enter as a separate
 key event 0.5 s later (a same-batch Enter is a newline, not a submit).
---then TEXT: 3 s after the first line is submitted, wait until the TUI is idle
-again (the compaction has finished), then type TEXT + Enter so the session
-resumes without a human keystroke. TEXT is a plain message (no leading "/").
-On failure the log gets the reason and tg_notify.sh (next to this script) is
-pinged. Only /compact and /clear lines are delivered as the first line.
+--then TEXT: after the first line is submitted, wait for the TUI to become
+busy (the compaction starting; up to $DELIVER_BUSY_WAIT s, default 15, polled
+every second), then until it is idle again, then type TEXT + Enter so the
+session resumes without a human keystroke. If the spinner never shows up the
+follow-up is typed anyway once the pane is idle. TEXT is a plain message (no
+leading "/"). On failure the log gets the reason and tg_notify.sh (next to
+this script) is pinged. Only /compact and /clear lines are delivered as the
+first line.
 """
 import os
 import re
@@ -28,8 +31,9 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ALLOWED = ("/compact", "/clear")
-BUSY = re.compile(r"esc to interrupt|…\s*\(\d+s", re.I)
+BUSY = re.compile(r"esc to interrupt|…\s*\(\d+s|Compacting conversation", re.I)
 POLL = 3
+BUSY_WAIT = float(os.environ.get("DELIVER_BUSY_WAIT", 15))
 
 
 def log(path, msg):
@@ -55,18 +59,35 @@ def fail(logf, text, why):
     sys.exit(1)
 
 
+def screen_busy(pane, logf, text):
+    rc, screen = tmux("capture-pane", "-p", "-t", pane)
+    if rc != 0:
+        fail(logf, text, "pane %s not readable" % pane)
+    return bool(BUSY.search(screen))
+
+
 def wait_idle(pane, max_wait, logf, text):
     waited = 0
     while True:
-        rc, screen = tmux("capture-pane", "-p", "-t", pane)
-        if rc != 0:
-            fail(logf, text, "pane %s not readable" % pane)
-        if not BUSY.search(screen):
+        if not screen_busy(pane, logf, text):
             return waited
         if waited >= max_wait:
             fail(logf, text, "pane still busy after %ds" % max_wait)
         time.sleep(POLL)
         waited += POLL
+
+
+def wait_busy(pane, logf, text):
+    """Seconds until the spinner showed up, or None if it never did within
+    BUSY_WAIT (compaction already over, or a TUI that renders differently)."""
+    waited = 0.0
+    while waited <= BUSY_WAIT:
+        if screen_busy(pane, logf, text):
+            return waited
+        if waited >= BUSY_WAIT:
+            return None
+        time.sleep(1)
+        waited += 1
 
 
 def type_line(pane, text, logf):
@@ -85,10 +106,11 @@ def deliver(pane, text, then, delay, max_wait, logf):
     type_line(pane, text, logf)
     log(logf, "typed into %s after %ds idle-wait: %s" % (pane, waited, text))
     if then:
-        time.sleep(3)
+        seen = wait_busy(pane, logf, then)
         waited = wait_idle(pane, max_wait, logf, then)
         type_line(pane, then, logf)
-        log(logf, "typed follow-up into %s after %ds idle-wait: %s" % (pane, waited, then))
+        log(logf, "typed follow-up into %s after %ds idle-wait (spinner %s): %s" % (
+            pane, waited, "seen after %.0fs" % seen if seen is not None else "not seen", then))
 
 
 def detach(logf):
