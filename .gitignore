@@ -1,10 +1,7 @@
-# local only: design drafts, trash, session settings
-source_docs/
-trash/
+# local only: design drafts + old versions (left_outs/), trash, session settings
+/left_outs/
+/trash/
 .claude/
-/Autoresearch design.md
-/compact_guidelines.md
-/subagent_playbook.md
 
 # never commit credentials
 telegram.env
