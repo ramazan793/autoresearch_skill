@@ -100,7 +100,7 @@ its reply asking you to paste the `/compact <msg>` line (also in the TG ping).
 also TG-pings the line to paste.
 
 Verify the compact path on each machine:
-`bash /Users/ramazan/claude_sessions/autoresearch_design/tests/verify_compact.sh`
+`bash tests/verify_compact.sh` (from the package root)
 
 **Subagents** cannot be compacted (`/compact` is a session command; a subagent
 has no pane). The hook watches each subagent's own transcript instead
@@ -173,19 +173,14 @@ it; you empty `trash/` manually.
 
 ## Install
 
-On this Mac, from a Claude Code session (the `!` prefix runs it as you):
-
-```
-! bash /Users/ramazan/claude_sessions/autoresearch_design/install.sh
-```
-
-On each GPU server: copy this folder over (scp/rsync/git) and run
-`bash install.sh` there too. Then everywhere:
+Clone the repo (or copy the folder) on each machine and run `bash install.sh`
+from it — as yourself, not from an agent (inside a Claude Code session the `!`
+prefix runs it as you: `! bash install.sh`). Then everywhere:
 
 1. edit `~/.config/autoresearch/telegram.env`;
 2. test: `bash ~/.claude/skills/autoresearch/scripts/tg_notify.sh "hello"`;
-3. verify the compact path:
-   `bash /Users/ramazan/claude_sessions/autoresearch_design/tests/verify_compact.sh`;
+3. verify: `python3 tests/test_core.py` and `bash tests/verify_compact.sh`
+   from the package root;
 4. run Claude Code inside tmux in research repos;
 5. paste `claude_md_snippet.md` into each research repo's `CLAUDE.md`.
 

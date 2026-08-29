@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""End-to-end checks for the autoresearch deliverables (design-mac side)."""
+"""End-to-end checks for the autoresearch package. Run from any checkout:
+    python3 <package>/tests/test_core.py"""
 import json
 import os
 import subprocess
 import sys
 import tempfile
 
-SRC = "/Users/ramazan/claude_sessions/autoresearch_design"
+SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SK = os.path.join(SRC, "skill/autoresearch/scripts")
 HK = os.path.join(SRC, "skill/autoresearch/hooks")
 results = []

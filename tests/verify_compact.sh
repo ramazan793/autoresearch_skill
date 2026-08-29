@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify_compact.sh — proves the autonomous-compact machinery end to end.
 # Run it yourself (it drives tmux and spawns background processes):
-#     bash /Users/ramazan/claude_sessions/autoresearch_design/tests/verify_compact.sh
+#     bash <package>/tests/verify_compact.sh
 #
 # Covers:
 #   1. request_compact.py — queues into <repo>/.claude/autoresearch/, refuses
