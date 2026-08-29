@@ -23,12 +23,11 @@ in `$TMUX_PANE`.
    Enter as a separate key event. Log: `<repo>/.claude/autoresearch/deliver.log`.
    On failure it TG-pings the line for the user to paste.
 4. Compaction runs; the SessionStart(compact) hook restores `STATE.md`.
-5. The worker waits for the compacting spinner to appear (≤ 15 s,
-   `DELIVER_BUSY_WAIT`) and then to clear, and types the follow-up
-   (`continue` by default; `request_compact.py --then "<text>"` to change it,
-   `--then ""` for none; plain messages only). The session resumes on its
-   own. If the follow-up lands while the TUI is still busy, Claude Code
-   queues it and runs it right after the compact (observed on 2.1.251).
+5. 2 s later the worker types the follow-up (`continue` by default;
+   `request_compact.py --then "<text>"` to change it, `--then ""` for none;
+   plain messages only). Claude Code queues input typed during compaction
+   and runs it as the next turn (observed on 2.1.251), so the session
+   resumes on its own with no spinner detection involved.
 
 ## Requirements
 

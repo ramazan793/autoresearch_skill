@@ -223,7 +223,6 @@ env_p5["PATH"] = os.path.join(SRC, "tests/helpers/faketmux") + os.pathsep + env_
 env_p5["FT_LOG"] = os.path.join(T, "ft_core.log")
 env_p5["FT_STATE"] = os.path.join(T, "ft_core.state")
 env_p5["FT_BUSY_CALLS"] = "0"
-env_p5["DELIVER_BUSY_WAIT"] = "0"
 os.chmod(os.path.join(SRC, "tests/helpers/faketmux/tmux"), 0o755)
 write_transcript(500000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,

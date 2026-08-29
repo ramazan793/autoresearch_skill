@@ -18,7 +18,6 @@ SCRIPTS="$PKG/skill/autoresearch/scripts"
 HOOK="$PKG/skill/autoresearch/hooks/context_watch.py"
 T="$(mktemp -d "${TMPDIR:-/tmp}/verify_compact.XXXXXX")"
 export TG_CONF=/nonexistent/telegram.env   # failure paths must not ping Telegram
-export DELIVER_BUSY_WAIT=0                 # shim sections: don't wait for a spinner to appear
 pass=0; fail=0
 ck() { if eval "$2"; then echo "PASS: $1"; pass=$((pass+1)); else echo "FAIL: $1"; fail=$((fail+1)); fi; }
 have_tmux=1; command -v tmux >/dev/null 2>&1 || have_tmux=0
@@ -68,11 +67,7 @@ FOLLOWLINE=$(grep -n '^continue$' "$FTLOG3" | tail -1 | cut -d: -f1)
 ck "--then: follow-up typed after the command, Enter sent twice" "[ -n \"$CMDLINE\" ] && [ -n \"$FOLLOWLINE\" ] && [ \"$CMDLINE\" -lt \"$FOLLOWLINE\" ] && [ \$(grep -c '^Enter$' '$FTLOG3') -eq 2 ]"
 ( python3 "$SCRIPTS/tmux_deliver.py" --now --pane sess --then '/clear' -- '/compact x' >/dev/null 2>&1 ); RC=$?
 ck "--then with a slash command refused (nonzero)" "[ $RC -ne 0 ]"
-FTLOG4="$T/ft2d.log"
-( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$FTLOG4" FT_STATE="$T/ft2d.state" FT_BUSY_FROM=2 FT_BUSY_CALLS=2 DELIVER_LOG="$T/d2d.log" DELIVER_BUSY_WAIT=15
-  : > "$FT_LOG"; : > "$FT_STATE"
-  python3 "$SCRIPTS/tmux_deliver.py" --now --pane sess --delay 0 --max-wait 20 --then 'continue' -- '/compact keep ctx' )
-ck "--then: waits for the spinner to appear (1 idle, 2 busy, 1 idle poll) before the follow-up" "[ \$(grep -c '^capture-pane$' '$FTLOG4') -eq 4 ] && grep -q '^continue$' '$FTLOG4' && grep -q 'spinner seen' '$T/d2d.log'"
+ck "--then: follow-up typed without further polling (queued by the TUI)" "[ \$(grep -c '^capture-pane$' '$FTLOG3') -eq 1 ]"
 
 echo '=== 3. Stop hook consumes request + detached worker (fake tmux shim) ==='
 REPO3="$T/repo3"; mkdir -p "$REPO3/agent_notes"
@@ -99,11 +94,11 @@ if [ "$have_tmux" -eq 0 ]; then echo 'SKIP: tmux not installed'; else
   tmux new-session -d -s "$SESS4" -x 120 -y 30 "python3 '$HERE/helpers/tui_stub.py' '$OUT4' 6 2"
   sleep 1
   ( cd "$REPO4" && TMUX_PANE="$SESS4" python3 "$SCRIPTS/request_compact.py" --then 'go on' '/compact live hook delivery works' >/dev/null )
-  printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO4" | TMUX_PANE="$SESS4" DELIVER_BUSY_WAIT=15 python3 "$HOOK"
+  printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO4" | TMUX_PANE="$SESS4" python3 "$HOOK"
   for _ in $(seq 1 60); do grep -q '^go on$' "$OUT4" 2>/dev/null && break; sleep 0.5; done
   ck "live: line submitted into the real pane" "grep -q '^/compact live hook delivery works$' '$OUT4' 2>/dev/null"
   ck "live: worker waited for the spinner to clear" "grep -Eq 'typed into .* after [1-9][0-9]*s idle-wait' '$REPO4/.claude/autoresearch/deliver.log'"
-  ck "live: follow-up submitted after the compacting spinner appeared and cleared" "grep -q '^go on$' '$OUT4' 2>/dev/null && grep -Eq 'typed follow-up into .* after [1-9][0-9]*s idle-wait \(spinner seen' '$REPO4/.claude/autoresearch/deliver.log'"
+  ck "live: follow-up typed during the fake compaction is read afterwards (queued)" "grep -q '^go on$' '$OUT4' 2>/dev/null && grep -q 'typed follow-up into' '$REPO4/.claude/autoresearch/deliver.log'"
   tmux kill-session -t "$SESS4" 2>/dev/null || true
 fi
 

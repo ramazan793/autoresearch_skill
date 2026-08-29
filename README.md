@@ -113,17 +113,17 @@ grown `AUTORESEARCH_SUB_MIN_GROWTH` (default 5000) past its first measurement,
 so a limit below its start context cannot livelock the successor chain.
 
 **After the compact** the session would sit at the prompt (the SessionStart
-hook only injects STATE.md, it does not start a turn), so the worker waits for
-the compacting spinner to appear (≤ `DELIVER_BUSY_WAIT` s, default 15) and
-clear, then types a follow-up — `continue` by default,
-`request_compact.py --then "<text>"` to change it, `--then ""` for none. The
-follow-up is a plain message; slash commands are refused there.
+hook only injects STATE.md, it does not start a turn), so 2 s after `/compact`
+the worker types a follow-up — `continue` by default,
+`request_compact.py --then "<text>"` to change it, `--then ""` for none.
+Claude Code queues input typed during compaction and runs it as the next
+turn, so no spinner detection is involved. The follow-up is a plain message;
+slash commands are refused there.
 
 Knobs: `AUTORESEARCH_CTX_LIMIT` (default 250000), `AUTORESEARCH_SUB_CTX_LIMIT`
 (default 350000), `AUTORESEARCH_SUB_MIN_GROWTH` (default 5000),
 `AUTORESEARCH_CTX_STEP` (re-nudge step, default 40000; the dampener re-arms as
-soon as the context shrinks, i.e. after any compact or `/clear`),
-`DELIVER_BUSY_WAIT` (default 15) — env vars. The watcher and the notification
+soon as the context shrinks, i.e. after any compact or `/clear`) — env vars. The watcher and the notification
 hooks are inert outside research repos (they require an `agent_notes/` dir in
 the cwd), so ordinary sessions never get nudged or pinged.
 
@@ -168,8 +168,8 @@ it; you empty `trash/` manually.
 - `tmux_deliver.py [--pane P] [--delay S] [--max-wait S] [--then TEXT] [--now] -- TEXT`
   — spawned by the Stop hook (detached); busy while the pane shows a spinner
   line (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to
-  interrupt` in older builds); `--then` waits for the compacting spinner to
-  appear and clear, then types the follow-up.
+  interrupt` in older builds); `--then` types the follow-up 2 s after the
+  command (the TUI queues it behind the compaction).
 
 ## Install
 
