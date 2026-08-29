@@ -11,7 +11,8 @@ in `$TMUX_PANE`.
 
 1. Agent: `python3 ~/.claude/skills/autoresearch/scripts/request_compact.py "/compact <msg>"`
    writes `<repo>/.claude/autoresearch/compact_request_<pane>.json` (pane =
-   `$TMUX_PANE`, e.g. `%3` → `p3`; only `/compact` and `/clear` are accepted).
+   `$TMUX_PANE`, e.g. `%3` → `p3`; only `/compact` and `/clear` are accepted,
+   max 800 chars — the message is 1–2 sentences, details live in STATE.md).
    The agent then ends its reply.
 2. Stop hook (`hooks/context_watch.py`) of the same pane: consumes the file
    (renamed to `last_compact_request_<pane>.json`) and spawns
@@ -19,8 +20,10 @@ in `$TMUX_PANE`.
    Requests of other panes (other agents in the same repo) are left alone.
 3. Worker: waits 3 s, polls `tmux capture-pane` until no spinner line is shown
    (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to interrupt`
-   in older builds), types the text with `send-keys -l`, 0.5 s later sends
-   Enter as a separate key event. Log: `<repo>/.claude/autoresearch/deliver.log`.
+   in older builds), types the text with `send-keys -l` in 200-char pieces
+   50 ms apart (one big write is taken for a paste, and a pasted `/compact`
+   goes to the model as a plain message instead of running), 0.5 s later
+   sends Enter as a separate key event. Log: `<repo>/.claude/autoresearch/deliver.log`.
    On failure it TG-pings the line for the user to paste.
 4. Compaction runs; the SessionStart(compact) hook restores `STATE.md`.
 5. 2 s later the worker types the follow-up (`continue` by default;

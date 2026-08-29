@@ -9,7 +9,9 @@ session's tmux pane ($TMUX_PANE, e.g. %3 -> p3) so several agents in the same
 repo do not pick up each other's requests. When the agent's turn ends, the
 Stop hook (hooks/context_watch.py) of the same pane reads the file and types
 the command into that pane via tmux_deliver.py. Only /compact and /clear are
-accepted. After the compaction finishes, the follow-up text given by --then
+accepted, and the line is capped at MAX_CHARS: the compact message is 1-2
+sentences, details belong in STATE.md. After the compaction finishes, the
+follow-up text given by --then
 (default "continue") is typed so the session resumes on its own; --then ""
 sends nothing. --then may appear before or after the command. The follow-up
 is a plain message, it may not start with "/".
@@ -20,6 +22,7 @@ import sys
 import time
 
 ALLOWED = ("/compact", "/clear")
+MAX_CHARS = 800
 
 
 def parse(argv):
@@ -48,6 +51,10 @@ def main():
                  % ", ".join(ALLOWED))
     if then.startswith("/"):
         sys.exit("request_compact: refused, --then must be a plain message, not a slash command")
+    if len(command) > MAX_CHARS:
+        sys.exit("request_compact: refused, the line is %d chars (max %d). The compact message is "
+                 "1-2 sentences naming the project, the current task and where its state lives; "
+                 "details belong in agent_notes/STATE.md, not here." % (len(command), MAX_CHARS))
     cwd = os.getcwd()
     if not os.path.isdir(os.path.join(cwd, "agent_notes")):
         sys.exit("request_compact: no agent_notes/ in %s; the Stop hook is inactive "

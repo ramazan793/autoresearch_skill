@@ -40,6 +40,9 @@ J8="$REPO/.claude/autoresearch/compact_request_p8.json"
 ck "--then after the command: '' means no follow-up, flag not leaked into the message" "grep -q '\"then\": \"\"' '$J8' && grep -q '\"command\": \"/compact keep z\"' '$J8'"
 ( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" '/compact keep z' --then 'go on' >/dev/null )
 ck "--then after the command: custom follow-up recorded" "grep -q '\"then\": \"go on\"' '$J8'"
+LONGMSG="/compact $(printf 'word %.0s' $(seq 1 200))"
+( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" "$LONGMSG" >/dev/null 2>&1 ); RC=$?
+ck "line over 800 chars refused (nonzero)" "[ $RC -ne 0 ]"
 
 echo '=== 2. tmux_deliver.py logic (fake tmux shim) ==='
 FTLOG="$T/ft2.log"
@@ -52,6 +55,12 @@ ck "spinner recognised as busy: 2 busy polls + 1 idle poll" "[ \$(grep -c '^capt
 ck "text precedes Enter" "[ -n \"$TEXTLINE\" ] && [ -n \"$ENTERLINE\" ] && [ \"$TEXTLINE\" -lt \"$ENTERLINE\" ]"
 ck "literal text sent verbatim" "grep -q 'keep ctx' '$FTLOG'"
 ck "Enter sent exactly once" "[ \$(grep -c '^Enter$' '$FTLOG') -eq 1 ]"
+FTLOG2E="$T/ft2e.log"
+LONG2E="/compact $(printf 'w%.0s' $(seq 1 690))"
+( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$FTLOG2E" FT_STATE="$T/ft2e.state" FT_BUSY_CALLS=0 DELIVER_LOG="$T/d2e.log"
+  : > "$FT_LOG"; : > "$FT_STATE"
+  python3 "$SCRIPTS/tmux_deliver.py" --now --pane sess --delay 0 --max-wait 20 -- "$LONG2E" )
+ck "699-char line typed in 4 pieces (<=200 chars each), Enter once" "[ \$(grep -c '^-l$' '$FTLOG2E') -eq 4 ] && [ \$(grep -c '^Enter$' '$FTLOG2E') -eq 1 ] && [ \$(awk 'length > 200' '$FTLOG2E' | wc -l) -eq 0 ]"
 ( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$T/ft2b.log" FT_STATE="$T/ft2b.state" FT_BUSY_CALLS=9999 DELIVER_LOG="$T/d2b.log"
   : > "$FT_LOG"; : > "$FT_STATE"
   python3 "$SCRIPTS/tmux_deliver.py" --now --pane sess --delay 0 --max-wait 4 -- '/compact x' >/dev/null 2>&1 ); RC=$?

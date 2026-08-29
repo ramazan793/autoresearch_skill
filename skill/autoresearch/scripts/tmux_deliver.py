@@ -12,8 +12,12 @@ foreground. PANE defaults to $TMUX_PANE. Log file: $DELIVER_LOG, default
 Busy detection (capture-pane, polled every 3 s): the TUI is busy while the
 screen shows a spinner line such as "Wrangling… (3s · ↓ 24 tokens)" or
 "Compacting conversation… (24s)" (Claude Code 2.1) or "esc to interrupt"
-(older builds). The text is sent with send-keys -l, then Enter as a separate
-key event 0.5 s later (a same-batch Enter is a newline, not a submit).
+(older builds). The text is sent with send-keys -l in 200-char pieces 50 ms
+apart, then Enter as a separate key event 0.5 s later (a same-batch Enter is
+a newline, not a submit). The pieces matter: a single write of ~900+ chars
+is taken for a paste by the Claude Code TUI, and pasted text is submitted as
+a plain message, not parsed as a slash command (seen on 2.1.251: the model
+answered the "/compact ..." text instead of compacting).
 --then TEXT: 2 s after the first line is submitted, type TEXT + Enter. Claude
 Code queues input typed during compaction and runs it as the next turn, so
 the session resumes without a human keystroke and no spinner detection is
@@ -33,6 +37,8 @@ ALLOWED = ("/compact", "/clear")
 BUSY = re.compile(r"esc to interrupt|…\s*\(\d+s|Compacting conversation", re.I)
 POLL = 3
 FOLLOW_DELAY = 2
+CHUNK = 200        # chars per send-keys write; larger single writes read as a paste
+CHUNK_GAP = 0.05
 
 
 def log(path, msg):
@@ -77,9 +83,11 @@ def wait_idle(pane, max_wait, logf, text):
 
 
 def type_line(pane, text, logf):
-    rc, _ = tmux("send-keys", "-t", pane, "-l", "--", text)
-    if rc != 0:
-        fail(logf, text, "send-keys text failed")
+    for i in range(0, len(text), CHUNK):
+        rc, _ = tmux("send-keys", "-t", pane, "-l", "--", text[i:i + CHUNK])
+        if rc != 0:
+            fail(logf, text, "send-keys text failed")
+        time.sleep(CHUNK_GAP)
     time.sleep(0.5)
     rc, _ = tmux("send-keys", "-t", pane, "Enter")
     if rc != 0:

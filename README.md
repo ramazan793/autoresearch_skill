@@ -164,11 +164,15 @@ it; you empty `trash/` manually.
 **Compact delivery** (see Q2 + `references/self_compact.md`):
 - `request_compact.py "/compact <msg>"` — agent-side; writes
   `<repo>/.claude/autoresearch/compact_request_<pane>.json`; refuses without
-  `$TMUX_PANE` or `agent_notes/`.
+  `$TMUX_PANE` or `agent_notes/`, and refuses lines over 800 chars (the
+  compact message is 1–2 sentences; details belong in STATE.md).
 - `tmux_deliver.py [--pane P] [--delay S] [--max-wait S] [--then TEXT] [--now] -- TEXT`
   — spawned by the Stop hook (detached); busy while the pane shows a spinner
   line (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to
-  interrupt` in older builds); `--then` types the follow-up 2 s after the
+  interrupt` in older builds); types the text in 200-char pieces 50 ms apart
+  — a single write of ~900+ chars is taken for a paste by the TUI and a
+  pasted `/compact …` is sent to the model as a plain message instead of
+  being run as a command; `--then` types the follow-up 2 s after the
   command (the TUI queues it behind the compaction).
 
 ## Install
