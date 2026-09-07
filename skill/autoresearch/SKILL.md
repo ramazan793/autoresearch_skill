@@ -110,8 +110,9 @@ Follow `references/compact_protocol.md`. Triggers: a `[context-watch]` nudge
 compact mid-task** — reach a clean stopping point first. The agent issues the
 compact **itself**, autonomously: stage everything (STATE.md + the compact
 message), TG-ping, then queue it with `scripts/request_compact.py "/compact
-<msg>"` (a file write inside the repo; the Stop hook types it into your tmux
-pane when your turn ends — see `references/self_compact.md`). No human
+<msg>"` (a pane-keyed file under `~/.claude/autoresearch/`, so any shell cwd
+works; the Stop hook types it into your tmux pane when your turn ends — see
+`references/self_compact.md`). No human
 keystroke; falls back to asking the user only if `request_compact.py` refuses
 (not inside tmux).
 

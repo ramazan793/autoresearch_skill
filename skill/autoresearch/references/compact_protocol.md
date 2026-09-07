@@ -32,7 +32,9 @@ conversation.
    ```bash
    python3 ~/.claude/skills/autoresearch/scripts/request_compact.py "/compact <the compact message>"
    ```
-   This writes `.claude/autoresearch/compact_request_<pane>.json`; when your
+   This writes `~/.claude/autoresearch/compact_request_<pane>.json`, keyed by
+   your tmux pane, so any shell cwd — a worktree or subdirectory included — is
+   fine (never hand-place the file elsewhere); when your
    turn ends, the Stop hook types `/compact <msg>` into your tmux pane — the
    message steers the summarizer, no human keystroke — and, once the compact
    has finished, types `continue` so you resume (`--then "<text>"` for a

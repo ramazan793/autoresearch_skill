@@ -7,7 +7,7 @@ Usage: tmux_deliver.py [--pane PANE] [--delay S] [--max-wait S] [--then TEXT] [-
 Default mode detaches (double fork + setsid) and returns immediately, so a hook
 can schedule the keystrokes and exit; --now runs the wait/type loop in the
 foreground. PANE defaults to $TMUX_PANE. Log file: $DELIVER_LOG, default
-<cwd>/.claude/autoresearch/deliver.log.
+~/.claude/autoresearch/deliver.log (one log for all panes; lines name the pane).
 
 Busy detection (capture-pane, polled every 3 s): the TUI is busy while the
 screen shows a spinner line such as "Wrangling… (3s · ↓ 24 tokens)" or
@@ -147,7 +147,7 @@ def main():
             break
     text = clean(" ".join(args))
     logf = os.environ.get("DELIVER_LOG") or os.path.join(
-        os.getcwd(), ".claude", "autoresearch", "deliver.log")
+        os.path.expanduser("~"), ".claude", "autoresearch", "deliver.log")
     os.makedirs(os.path.dirname(logf), exist_ok=True)
 
     if not text:

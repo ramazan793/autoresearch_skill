@@ -69,7 +69,8 @@ agent     → finishes task → actualizes artifacts → writes agent_notes/STAT
             (incl. the 1–2 sentence compact message per your guidelines)
           → tg_notify "ready to compact"
           → request_compact.py "/compact <msg>"
-            (writes .claude/autoresearch/compact_request_<pane>.json)
+            (writes ~/.claude/autoresearch/compact_request_<pane>.json —
+            keyed by pane, independent of the shell cwd)
           → ends its reply
 turn ends → Stop hook of the same pane consumes the request file, spawns
             tmux_deliver.py detached, exits
@@ -96,8 +97,9 @@ by `$TMUX_PANE`, so agents sharing a repo dir never consume each other's
 requests; each hook only types into its own pane.
 **Fallback**: `request_compact.py` refuses (not inside tmux) → the agent ends
 its reply asking you to paste the `/compact <msg>` line (also in the TG ping).
-**Delivery log**: `<repo>/.claude/autoresearch/deliver.log`; a failed delivery
-also TG-pings the line to paste.
+**Delivery log**: `~/.claude/autoresearch/deliver.log` (one log for all panes);
+a failed delivery also TG-pings the line to paste. Requests older than 10 min
+(`AUTORESEARCH_REQUEST_TTL`) are set aside as stale instead of typed.
 
 Verify the compact path on each machine:
 `bash tests/verify_compact.sh` (from the package root)
@@ -163,8 +165,9 @@ it; you empty `trash/` manually.
 
 **Compact delivery** (see Q2 + `references/self_compact.md`):
 - `request_compact.py "/compact <msg>"` — agent-side; writes
-  `<repo>/.claude/autoresearch/compact_request_<pane>.json`; refuses without
-  `$TMUX_PANE` or `agent_notes/`, and refuses lines over 800 chars (the
+  `~/.claude/autoresearch/compact_request_<pane>.json` (any shell cwd, a
+  worktree or subdirectory included); refuses without `$TMUX_PANE` or
+  `agent_notes/` in the cwd or above, and refuses lines over 800 chars (the
   compact message is 1–2 sentences; details belong in STATE.md).
 - `tmux_deliver.py [--pane P] [--delay S] [--max-wait S] [--then TEXT] [--now] -- TEXT`
   — spawned by the Stop hook (detached); busy while the pane shows a spinner

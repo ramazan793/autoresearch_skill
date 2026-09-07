@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Stop + PostToolUse hook, two jobs. Files live in <cwd>/.claude/autoresearch/
-and are keyed by this session's tmux pane ($TMUX_PANE, e.g. %3 -> p3), so
-several agents in the same repo do not touch each other's state.
+"""Stop + PostToolUse hook, two jobs. State is keyed by this session's tmux
+pane ($TMUX_PANE, e.g. %3 -> p3), so several agents in the same repo do not
+touch each other's state.
 
-1. Compact delivery (Stop only): if the agent queued compact_request_<pane>.json
-   (via scripts/request_compact.py), consume it and spawn
-   scripts/tmux_deliver.py, which types the command into this pane once the
-   TUI is idle.
-2. Context watch (Stop and PostToolUse): nudge the agent to run the compact
+1. Compact delivery (Stop only): if the agent queued a request via
+   scripts/request_compact.py -- compact_request_<pane>.json in
+   ~/.claude/autoresearch/, or in <cwd>/.claude/autoresearch/ as the sandbox
+   fallback -- consume it and spawn scripts/tmux_deliver.py, which types the
+   command into this pane once the TUI is idle. Requests older than
+   AUTORESEARCH_REQUEST_TTL s (default 600) are set aside as
+   stale_compact_request_<pane>.json instead of typed. Runs before the
+   agent_notes/ gate: the hook's cwd is Claude Code's tracked shell cwd, not
+   necessarily a repo root (see references/self_compact.md).
+   Log: ~/.claude/autoresearch/deliver.log.
+2. Context watch (Stop and PostToolUse), state in <cwd>/.claude/autoresearch/:
+   nudge the agent to run the compact
    protocol when session context exceeds AUTORESEARCH_CTX_LIMIT tokens
    (default 250000). Stop: blocks the stop with the nudge as reason.
    PostToolUse: injects the nudge as additionalContext mid-turn. One nudge per
@@ -23,12 +30,14 @@ several agents in the same repo do not touch each other's state.
    first measurement, so a limit below the floor cannot livelock successors.
    Subagents never compact and never deliver.
 
-Active only in repos that have an agent_notes/ dir. Fails open on any error.
+Jobs 2 and 3 are active only in repos that have an agent_notes/ dir. Fails
+open on any error.
 """
 import json
 import os
 import subprocess
 import sys
+import time
 
 LIMIT = int(os.environ.get("AUTORESEARCH_CTX_LIMIT", 250000))
 SUB_LIMIT = int(os.environ.get("AUTORESEARCH_SUB_CTX_LIMIT", 350000))
@@ -37,6 +46,9 @@ STEP = int(os.environ.get("AUTORESEARCH_CTX_STEP", 40000))
 TAIL_BYTES = 8 * 1024 * 1024
 ALLOWED = ("/compact", "/clear")
 SCRIPTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
+# Shared with scripts/request_compact.py: per-pane request files + deliver.log.
+REQUEST_DIR = os.path.join(os.path.expanduser("~"), ".claude", "autoresearch")
+REQUEST_TTL = int(os.environ.get("AUTORESEARCH_REQUEST_TTL", 600))
 
 NUDGE = (
     "[context-watch] Session context is ~{ctx}k tokens (limit {limit}k). Do not "
@@ -64,20 +76,53 @@ def pane_key():
     return "p" + "".join(c for c in pane if c.isalnum()) if pane else ""
 
 
-def deliver_request(cwd, path, pane):
-    consumed = os.path.join(os.path.dirname(path), "last_compact_request_%s.json" % pane_key())
-    os.replace(path, consumed)
+def log_line(msg):
     try:
-        with open(consumed) as f:
+        os.makedirs(REQUEST_DIR, exist_ok=True)
+        with open(os.path.join(REQUEST_DIR, "deliver.log"), "a") as f:
+            f.write("[%s] %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg))
+    except OSError:
+        pass
+
+
+def find_request(cwd):
+    """Path of this pane's request file: ~/.claude/autoresearch/ first, then
+    the hook cwd's .claude/autoresearch/ (sandbox fallback / hand-placed)."""
+    name = "compact_request_%s.json" % pane_key()
+    for d in (REQUEST_DIR, os.path.join(cwd, ".claude", "autoresearch")):
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def deliver_request(cwd, path, pane):
+    """Consume the request file and hand it to tmux_deliver.py. Stale requests
+    (older than REQUEST_TTL) are set aside, never typed: a compact firing long
+    after it was asked for would land mid-task."""
+    try:
+        with open(path) as f:
             req = json.load(f)
     except (OSError, ValueError):
+        req = {}
+    age = time.time() - float(req.get("created") or 0)
+    if not req or age > REQUEST_TTL:
+        os.replace(path, os.path.join(os.path.dirname(path),
+                                      "stale_compact_request_%s.json" % pane_key()))
+        log_line("SKIPPED stale request for %s (queued %s, %.0fs old > %ds; file %s)" % (
+            pane, req.get("created_h", "?"), age, REQUEST_TTL, path))
         return
+    os.replace(path, os.path.join(os.path.dirname(path),
+                                  "last_compact_request_%s.json" % pane_key()))
     command = (req.get("command") or "").strip()
     then = (req.get("then") or "").strip()
     if not command or command.split()[0] not in ALLOWED or then.startswith("/"):
+        log_line("REFUSED request for %s (bad command/then; file %s)" % (pane, path))
         return
+    log_line("request for %s queued %s (shell cwd %s) found at %s; hook cwd %s" % (
+        pane, req.get("created_h", "?"), req.get("shell_cwd", "?"), path, cwd))
     env = dict(os.environ)
-    env["DELIVER_LOG"] = os.path.join(cwd, ".claude", "autoresearch", "deliver.log")
+    env["DELIVER_LOG"] = os.path.join(REQUEST_DIR, "deliver.log")
     args = [sys.executable, os.path.join(SCRIPTS, "tmux_deliver.py"), "--pane", pane]
     if then:
         args += ["--then", then]
@@ -179,24 +224,28 @@ def watch_subagent(data, state_dir):
 def main():
     data = json.load(sys.stdin)
     cwd = data.get("cwd") or os.getcwd()
-    if not os.path.isdir(os.path.join(cwd, "agent_notes")):
-        return
-    state_dir = os.path.join(cwd, ".claude", "autoresearch")
-    if data.get("agent_id"):
-        if data.get("hook_event_name") == "PostToolUse":
-            watch_subagent(data, state_dir)
-        return
     event = data.get("hook_event_name") or "Stop"
     pane = os.environ.get("TMUX_PANE", "").strip()
     key = pane_key() or "nopane"
 
-    if event == "Stop":
-        request = os.path.join(state_dir, "compact_request_%s.json" % key)
-        if pane and os.path.isfile(request):
+    # Job 1: compact delivery, keyed by pane, independent of cwd and of the
+    # agent_notes/ gate (see module docstring). Subagents never deliver.
+    if event == "Stop" and pane and not data.get("agent_id"):
+        request = find_request(cwd)
+        if request:
             deliver_request(cwd, request, pane)
             return
-        if data.get("stop_hook_active"):
-            return
+
+    if not os.path.isdir(os.path.join(cwd, "agent_notes")):
+        return
+    state_dir = os.path.join(cwd, ".claude", "autoresearch")
+    if data.get("agent_id"):
+        if event == "PostToolUse":
+            watch_subagent(data, state_dir)
+        return
+
+    if event == "Stop" and data.get("stop_hook_active"):
+        return
 
     transcript = data.get("transcript_path")
     if not transcript or not os.path.isfile(transcript):

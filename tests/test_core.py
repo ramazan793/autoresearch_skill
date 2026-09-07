@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SK = os.path.join(SRC, "skill/autoresearch/scripts")
@@ -211,13 +212,15 @@ r = sub_hook(40000, aid="a2", env=env_low)
 check("subwatch: grown past the floor and over the limit -> hand-off nudge",
       "return to the main agent" in r.stdout and "40k" in r.stdout, r.stdout[:80])
 
-req_dir = os.path.join(research, ".claude", "autoresearch")
+home = os.path.join(T, "home")
+req_dir = os.path.join(home, ".claude", "autoresearch")
 os.makedirs(req_dir, exist_ok=True)
 mine = os.path.join(req_dir, "compact_request_p5.json")
 other = os.path.join(req_dir, "compact_request_p6.json")
-json.dump({"command": "/compact keep X"}, open(mine, "w"))
-json.dump({"command": "/compact other agent"}, open(other, "w"))
+json.dump({"command": "/compact keep X", "created": time.time()}, open(mine, "w"))
+json.dump({"command": "/compact other agent", "created": time.time()}, open(other, "w"))
 env_p5 = dict(os.environ)
+env_p5["HOME"] = home
 env_p5["TMUX_PANE"] = "%5"
 env_p5["TG_CONF"] = os.path.join(T, "none.env")
 env_p5["PATH"] = os.path.join(SRC, "tests/helpers/faketmux") + os.pathsep + env_p5["PATH"]
@@ -238,6 +241,19 @@ r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,
                           "hook_event_name": "PostToolUse", "tool_name": "Bash"}))
 check("PostToolUse never delivers (other agent's request untouched)",
       os.path.isfile(other) and "additionalContext" in r.stdout, r.stdout[:80])
+json.dump({"command": "/compact from a subdir", "created": time.time()}, open(mine, "w"))
+r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,
+        input=json.dumps({"session_id": "s1", "transcript_path": transcript, "cwd": plain,
+                          "hook_event_name": "Stop", "stop_hook_active": False}))
+check("stop hook: pane-keyed lookup delivers even when the hook cwd has no agent_notes/",
+      r.returncode == 0 and not os.path.exists(mine), r.stdout[:80] + r.stderr[:80])
+json.dump({"command": "/compact stale", "created": time.time() - 3600}, open(mine, "w"))
+r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,
+        input=json.dumps({"session_id": "s1", "transcript_path": transcript, "cwd": research,
+                          "hook_event_name": "Stop", "stop_hook_active": False}))
+check("stop hook: request older than the TTL is set aside as stale, not typed",
+      not os.path.exists(mine) and os.path.isfile(os.path.join(req_dir, "stale_compact_request_p5.json"))
+      and "SKIPPED stale" in open(os.path.join(req_dir, "deliver.log")).read(), r.stderr[:80])
 
 state_md = os.path.join(research, "agent_notes", "STATE.md")
 open(state_md, "w").write("# STATE\n## Compact message\nKeep X.\n")
