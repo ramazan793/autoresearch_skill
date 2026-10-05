@@ -1,9 +1,11 @@
-# autoresearch
+<h1 align="center">MARS</h1>
+<p align="center"><b>M</b>achine Learning <b>A</b>uto<b>R</b>esearch <b>S</b>kill</p>
+<p align="center"><i>A Claude Code skill that lets an agent run ML research in our repos for days.</i></p>
 
-A Claude Code skill, five hooks, a few scripts and three subagent definitions
-that let an agent run ML research in our repos for days: plan, run experiments
-on shared GPUs, write reports, survive its own context limit, and ping us on
-Telegram only when it matters.
+MARS is a skill, three hooks, a few scripts and three subagent definitions.
+The agent plans, runs experiments on shared GPUs, writes reports, survives its
+own context limit, and pings us on Telegram only when it matters. The skill
+itself is still invoked as `autoresearch`; the subagents are `mars_*`.
 
 ## Why this exists
 
