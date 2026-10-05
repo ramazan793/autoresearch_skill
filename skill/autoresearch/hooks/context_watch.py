@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Stop + PostToolUse hook, two jobs. State is keyed by this session's tmux
-pane ($TMUX_PANE, e.g. %3 -> p3), so several agents in the same repo do not
+session key — p<pane> ($TMUX_PANE, e.g. %3 -> p3) in a tmux pane, j<job>
+($CLAUDE_JOB_DIR) for a background session — so several agents in the same repo do not
 touch each other's state.
 
 1. Compact delivery (Stop only): if the agent queued a request via
@@ -112,7 +113,15 @@ def research_repo(start):
         d = parent
 
 
-def pane_key():
+def session_key():
+    """Delivery key of this Claude session: j<job> for a background session
+    (claude --bg / agent view: hosted by the daemon, no tmux pane of its own,
+    $CLAUDE_JOB_DIR names its job), else p<pane> for a session in a tmux pane.
+    A background session never uses an inherited $TMUX_PANE: that pane belongs
+    to the session that spawned it."""
+    job = os.path.basename(os.environ.get("CLAUDE_JOB_DIR", "").rstrip("/"))
+    if job:
+        return "j" + "".join(c for c in job if c.isalnum())
     pane = os.environ.get("TMUX_PANE", "").strip()
     return "p" + "".join(c for c in pane if c.isalnum()) if pane else ""
 
@@ -129,7 +138,7 @@ def log_line(msg):
 def find_request(cwd):
     """Path of this pane's request file: ~/.claude/autoresearch/ first, then
     the hook cwd's .claude/autoresearch/ (sandbox fallback / hand-placed)."""
-    name = "compact_request_%s.json" % pane_key()
+    name = "compact_request_%s.json" % session_key()
     for d in (REQUEST_DIR, os.path.join(cwd, ".claude", "autoresearch")):
         p = os.path.join(d, name)
         if os.path.isfile(p):
@@ -137,10 +146,13 @@ def find_request(cwd):
     return None
 
 
-def deliver_request(cwd, path, pane):
-    """Consume the request file and hand it to tmux_deliver.py. Stale requests
+def deliver_request(cwd, path, key, job, pane):
+    """Consume the request file and hand it to tmux_deliver.py: --pane for a
+    session in a tmux pane, --attach <job> for a background session (the worker
+    opens it with `claude attach` in a scratch tmux window). Stale requests
     (older than REQUEST_TTL) are set aside, never typed: a compact firing long
     after it was asked for would land mid-task."""
+    target = ("background session %s" % job) if job else pane
     try:
         with open(path) as f:
             req = json.load(f)
@@ -149,22 +161,23 @@ def deliver_request(cwd, path, pane):
     age = time.time() - float(req.get("created") or 0)
     if not req or age > REQUEST_TTL:
         os.replace(path, os.path.join(os.path.dirname(path),
-                                      "stale_compact_request_%s.json" % pane_key()))
+                                      "stale_compact_request_%s.json" % key))
         log_line("SKIPPED stale request for %s (queued %s, %.0fs old > %ds; file %s)" % (
-            pane, req.get("created_h", "?"), age, REQUEST_TTL, path))
+            target, req.get("created_h", "?"), age, REQUEST_TTL, path))
         return
     os.replace(path, os.path.join(os.path.dirname(path),
-                                  "last_compact_request_%s.json" % pane_key()))
+                                  "last_compact_request_%s.json" % key))
     command = (req.get("command") or "").strip()
     then = (req.get("then") or "").strip()
     if not command or command.split()[0] not in ALLOWED or then.startswith("/"):
-        log_line("REFUSED request for %s (bad command/then; file %s)" % (pane, path))
+        log_line("REFUSED request for %s (bad command/then; file %s)" % (target, path))
         return
     log_line("request for %s queued %s (shell cwd %s) found at %s; hook cwd %s" % (
-        pane, req.get("created_h", "?"), req.get("shell_cwd", "?"), path, cwd))
+        target, req.get("created_h", "?"), req.get("shell_cwd", "?"), path, cwd))
     env = dict(os.environ)
     env["DELIVER_LOG"] = os.path.join(REQUEST_DIR, "deliver.log")
-    args = [sys.executable, os.path.join(SCRIPTS, "tmux_deliver.py"), "--pane", pane]
+    args = [sys.executable, os.path.join(SCRIPTS, "tmux_deliver.py")]
+    args += ["--attach", job] if job else ["--pane", pane]
     if then:
         args += ["--then", then]
     subprocess.run(args + ["--", command], cwd=cwd, env=env, timeout=30,
@@ -266,19 +279,21 @@ def main():
     data = json.load(sys.stdin)
     cwd = data.get("cwd") or os.getcwd()
     event = data.get("hook_event_name") or "Stop"
-    pane = os.environ.get("TMUX_PANE", "").strip()
-    key = pane_key() or "nopane"
+    job = os.path.basename(os.environ.get("CLAUDE_JOB_DIR", "").rstrip("/"))
+    pane = "" if job else os.environ.get("TMUX_PANE", "").strip()
+    key = session_key()
 
-    if event == "PostToolUse" and pane and not data.get("agent_id"):
+    if event == "PostToolUse" and key and not data.get("agent_id"):
         remember_task(key, json.dumps(data.get("tool_input") or {}), cwd)
 
     # Job 1: compact delivery, keyed by pane, independent of cwd and of the
     # agent_notes/ gate (see module docstring). Subagents never deliver.
-    if event == "Stop" and pane and not data.get("agent_id"):
+    if event == "Stop" and key and not data.get("agent_id"):
         request = find_request(cwd)
         if request:
-            deliver_request(cwd, request, pane)
+            deliver_request(cwd, request, key, job, pane)
             return
+    key = key or "nopane"
 
     repo = research_repo(cwd)
     if not repo:

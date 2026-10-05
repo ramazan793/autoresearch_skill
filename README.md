@@ -73,6 +73,9 @@ The **self-issued compact**: the agent updates `STATE.md`, queues
 `request_compact.py --task <id> "/compact <1-2 sentence message>"` and ends
 its turn. The Stop hook types `/compact ...` into the agent's tmux pane, the
 restore hook brings `STATE.md` back, the worker types `continue task <id>`.
+A background session (`claude --bg`, agent view) has no pane: there the request
+is keyed by its job id and the worker opens the session with `claude attach` in
+a scratch tmux window, types, and detaches (the session keeps running).
 No keystroke from us. Claude Code's built-in auto-compact (~967k on a 1M
 model) stays as a safety net; if it ever fires, the hook still knows the task.
 
@@ -136,8 +139,8 @@ bash ~/.claude/skills/autoresearch/scripts/tg_notify.sh "hello"
 python3 tests/test_core.py && bash tests/verify_compact.sh
 ```
 
-Requirements: Claude Code started inside tmux (the compact is typed into the
-pane), a 1M-context model (the 350k nudge assumes it; set
+Requirements: Claude Code started inside tmux or as a background session (the
+compact is typed into the pane, or into a `claude attach`), a 1M-context model (the 350k nudge assumes it; set
 `AUTORESEARCH_CTX_LIMIT` lower otherwise), `agent_notes/` in the repo.
 `install.sh` copies over the installed skill without deleting; a file retired
 from the package stays until you trash it (it prints a note when that applies).
@@ -163,4 +166,5 @@ retry. `gpu_free.py`: `PRACTICALLY_FREE` statuses with util, sharing
 tolerance, process ages, a 60 s confirmation that is skipped when enough GPUs
 are free. Notes are committed, `vis/` and `artifacts/` are not. Installer
 installs the agents and removes retired hook entries. The compact nudge moved
-from 250k to 350k tokens. 19 new tests.
+from 250k to 350k tokens. Background sessions (`claude --bg`) compact too:
+job-keyed requests, delivery through `claude attach`. 27 new tests.

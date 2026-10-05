@@ -328,6 +328,26 @@ check("restore: trim keeps the sections that fit, skips 'Compact message', names
       and "step N" in r.stdout and "omitted for size, read the file for: Running jobs" in r.stdout,
       r.stdout[-200:])
 open(os.path.join(task_dir, "STATE.md"), "w").write("# STATE t1\n## Next steps\n- task step Y\n")
+
+# background session (claude --bg): no tmux pane, CLAUDE_JOB_DIR names the job
+env_job = dict(env_p5)
+env_job.pop("TMUX_PANE", None)
+env_job["CLAUDE_JOB_DIR"] = os.path.join(home, ".claude", "jobs", "feedbeef")
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "--task", "t1", "/compact bg"],
+        cwd=research, env=env_job)
+reqj = os.path.join(req_dir, "compact_request_jfeedbeef.json")
+check("request: background session (CLAUDE_JOB_DIR, no TMUX_PANE) -> job-keyed request",
+      r.returncode == 0 and os.path.isfile(reqj) and json.load(open(reqj))["job"] == "feedbeef", r.stderr[:80])
+os.replace(reqj, os.path.join(req_dir, "last_compact_request_jfeedbeef.json"))
+r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload), env=env_job)
+check("restore: background session finds its job-keyed request",
+      "task step Y" in r.stdout and "(your task)" in r.stdout, r.stdout[:80])
+env_none = dict(env_p5)
+env_none.pop("TMUX_PANE", None)
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "--task", "t1", "/compact x"],
+        cwd=research, env=env_none)
+check("request: neither tmux pane nor background session -> refused",
+      r.returncode != 0 and "CLAUDE_JOB_DIR" in r.stderr)
 r = run([sys.executable, os.path.join(HK, "post_compact_state.py")],
         input=json.dumps({"cwd": plain}))
 check("restore: silent outside research repos", r.stdout.strip() == "")

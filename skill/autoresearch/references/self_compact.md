@@ -10,8 +10,10 @@ in `$TMUX_PANE`.
 ## Flow
 
 1. Agent: `python3 ~/.claude/skills/autoresearch/scripts/request_compact.py --task <task_id> "/compact <msg>"`
-   writes `~/.claude/autoresearch/compact_request_<pane>.json` (pane =
-   `$TMUX_PANE`, e.g. `%3` → `p3`; only `/compact` and `/clear` are accepted,
+   writes `~/.claude/autoresearch/compact_request_<key>.json` (key = `p<pane>`
+   from `$TMUX_PANE`, e.g. `%3` → `p3`, or `j<job>` from `$CLAUDE_JOB_DIR` in a
+   background session — `claude --bg` / agent view, which has no pane and
+   ignores an inherited `$TMUX_PANE`; only `/compact` and `/clear` are accepted,
    max 800 chars — the message is 1–2 sentences, details live in the task's
    STATE.md; `--task` defaults to the task folder this pane last touched and
    that STATE.md must exist and be under 6000 bytes).
@@ -28,8 +30,8 @@ in `$TMUX_PANE`.
    on 2026-09-03). The pane id is the only thing both sides share. If `$HOME`
    is not writable (Bash sandbox on), the script falls back to
    `<cwd>/.claude/autoresearch/` with a warning.
-2. Stop hook (`hooks/context_watch.py`) of the same pane: looks for
-   `compact_request_<pane>.json` in `~/.claude/autoresearch/`, then in
+2. Stop hook (`hooks/context_watch.py`) of the same session: looks for
+   `compact_request_<key>.json` in `~/.claude/autoresearch/`, then in
    `<hook cwd>/.claude/autoresearch/` (sandbox fallback, hand-placed files);
    consumes it (renamed to `last_compact_request_<pane>.json`) and spawns
    `scripts/tmux_deliver.py` detached (double fork + setsid), then exits.
@@ -39,7 +41,12 @@ in `$TMUX_PANE`.
    firing long after it was queued would land mid-task. This runs before the
    `agent_notes/` gate, so it also works when the tracked cwd is a
    subdirectory without `agent_notes/`.
-3. Worker: waits 3 s, polls `tmux capture-pane` until no spinner line is shown
+3. Worker: for a background session it first opens the session's TUI with
+   `claude attach <job>` in a scratch window of a dedicated tmux session
+   (`mars_deliver`, started if needed over the default tmux socket) and types
+   into that window; after the follow-up it detaches with Ctrl-Z (the session
+   keeps running) and closes the window. Then, in either case: waits 3 s,
+   polls `tmux capture-pane` until no spinner line is shown
    (`…(Ns` / `Compacting conversation` in Claude Code 2.1, `esc to interrupt`
    in older builds), types the text with `send-keys -l` in 200-char pieces
    50 ms apart (one big write is taken for a paste, and a pasted `/compact`
@@ -64,8 +71,9 @@ in `$TMUX_PANE`.
 
 ## Requirements
 
-- Claude Code started inside tmux (`$TMUX_PANE` set); `request_compact.py`
-  refuses otherwise.
+- Claude Code started inside tmux (`$TMUX_PANE` set) **or** running as a
+  background session (`$CLAUDE_JOB_DIR` set); `request_compact.py` refuses
+  otherwise. Background delivery needs a `tmux` binary, not a running server.
 - `agent_notes/` in the shell's cwd or one of its parents (`request_compact.py`
   refuses otherwise; the context-watch part of the hook is inert in repos
   without it).

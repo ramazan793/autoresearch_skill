@@ -6,7 +6,10 @@ Usage: tmux_deliver.py [--pane PANE] [--delay S] [--max-wait S] [--then TEXT] [-
 
 Default mode detaches (double fork + setsid) and returns immediately, so a hook
 can schedule the keystrokes and exit; --now runs the wait/type loop in the
-foreground. PANE defaults to $TMUX_PANE. Log file: $DELIVER_LOG, default
+foreground. PANE defaults to $TMUX_PANE; --attach JOB instead targets a
+background session: the worker opens `claude attach JOB` in a scratch window of
+the tmux session "mars_deliver", types there, detaches with Ctrl-Z (the session
+keeps running) and closes the window. Log file: $DELIVER_LOG, default
 ~/.claude/autoresearch/deliver.log (one log for all panes; lines name the pane).
 
 Busy detection (capture-pane, polled every 3 s): the TUI is busy while the
@@ -49,9 +52,15 @@ def log(path, msg):
         pass
 
 
+ATTACH_SESSION = "mars_deliver"   # dedicated tmux session for attach windows
+ATTACH_SETTLE = 4                 # s for the attached TUI to render
+
+
 def tmux(*args):
+    env = dict(os.environ)
+    env.setdefault("TERM", "xterm-256color")   # hooks of a background session have none
     r = subprocess.run(["tmux"] + list(args), stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE)
+                       stderr=subprocess.PIPE, env=env)
     return r.returncode, r.stdout.decode("utf-8", "replace")
 
 
@@ -94,15 +103,49 @@ def type_line(pane, text, logf):
         fail(logf, text, "send-keys Enter failed")
 
 
-def deliver(pane, text, then, delay, max_wait, logf):
+def open_attach(job, logf, text):
+    """Show a background session's TUI with `claude attach <job>` in a scratch
+    window of a dedicated tmux session (started if needed, over the default
+    tmux socket: no $TMUX required) and return that window's pane id."""
+    rc, _ = tmux("has-session", "-t", ATTACH_SESSION)
+    if rc != 0:
+        rc, out = tmux("new-session", "-d", "-s", ATTACH_SESSION, "-x", "200", "-y", "50")
+        if rc != 0:
+            fail(logf, text, "cannot start tmux session %s: %s" % (ATTACH_SESSION, out.strip()[:120]))
+    rc, out = tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", ATTACH_SESSION + ":",
+                   "-n", "attach_" + job, "claude attach " + job)
+    pane = out.strip().splitlines()[0] if out.strip() else ""
+    if rc != 0 or not pane.startswith("%"):
+        fail(logf, text, "cannot attach to background session %s: %s" % (job, out.strip()[:120]))
+    log(logf, "attached background session %s in %s window %s" % (job, ATTACH_SESSION, pane))
+    time.sleep(ATTACH_SETTLE)
+    return pane
+
+
+def close_attach(pane, logf):
+    """Detach (Ctrl-Z; the background session keeps running) and drop the window."""
+    tmux("send-keys", "-t", pane, "C-z")
+    time.sleep(2)
+    tmux("kill-window", "-t", pane)
+    log(logf, "detached %s" % pane)
+
+
+def deliver(pane, job, text, then, delay, max_wait, logf):
     time.sleep(delay)
-    waited = wait_idle(pane, max_wait, logf, text)
-    type_line(pane, text, logf)
-    log(logf, "typed into %s after %ds idle-wait: %s" % (pane, waited, text))
-    if then:
-        time.sleep(FOLLOW_DELAY)
-        type_line(pane, then, logf)
-        log(logf, "typed follow-up into %s (queued behind the compact): %s" % (pane, then))
+    if job:
+        pane = open_attach(job, logf, text)
+    try:
+        waited = wait_idle(pane, max_wait, logf, text)
+        type_line(pane, text, logf)
+        log(logf, "typed into %s after %ds idle-wait: %s" % (pane, waited, text))
+        if then:
+            time.sleep(FOLLOW_DELAY)
+            type_line(pane, then, logf)
+            log(logf, "typed follow-up into %s (queued behind the compact): %s" % (pane, then))
+            time.sleep(FOLLOW_DELAY)
+    finally:
+        if job:
+            close_attach(pane, logf)
 
 
 def detach(logf):
@@ -128,11 +171,14 @@ def clean(s):
 def main():
     args = sys.argv[1:]
     pane = os.environ.get("TMUX_PANE", "")
+    job = ""
     delay, max_wait, now, then = 3.0, 900, False, ""
     while args:
         a = args[0]
         if a == "--pane":
             pane = args[1]; args = args[2:]
+        elif a == "--attach":
+            job = args[1]; args = args[2:]
         elif a == "--delay":
             delay = float(args[1]); args = args[2:]
         elif a == "--max-wait":
@@ -156,16 +202,17 @@ def main():
         sys.exit("tmux_deliver: refused, text must start with one of %s" % ", ".join(ALLOWED))
     if then.startswith("/"):
         sys.exit("tmux_deliver: refused, --then must be a plain message, not a slash command")
-    if not pane:
-        fail(logf, text, "no pane: --pane not given and $TMUX_PANE empty")
+    if not pane and not job:
+        fail(logf, text, "no target: neither --pane/$TMUX_PANE nor --attach <job>")
+    target = ("background session %s (via claude attach)" % job) if job else ("pane %s" % pane)
 
     if now:
-        deliver(pane, text, then, delay, max_wait, logf)
+        deliver(pane, job, text, then, delay, max_wait, logf)
         return
     if detach(logf):
-        deliver(pane, text, then, delay, max_wait, logf)
+        deliver(pane, job, text, then, delay, max_wait, logf)
         os._exit(0)
-    print("scheduled into pane %s after >=%.0fs idle (log: %s)" % (pane, delay, logf))
+    print("scheduled into %s after >=%.0fs idle (log: %s)" % (target, delay, logf))
 
 
 if __name__ == "__main__":

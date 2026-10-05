@@ -4,10 +4,13 @@
     python3 ~/.claude/skills/autoresearch/scripts/request_compact.py --task <task_id> "/compact <msg>"
     python3 ~/.claude/skills/autoresearch/scripts/request_compact.py --task <task_id> "/compact <msg>" --then "<text>"
 
-Writes ~/.claude/autoresearch/compact_request_<pane>.json, keyed by this
-session's tmux pane ($TMUX_PANE, e.g. %3 -> p3). When the agent's turn ends,
-the Stop hook (hooks/context_watch.py) of the same pane reads the file and
-types the command into that pane via tmux_deliver.py. The file is keyed by
+Writes ~/.claude/autoresearch/compact_request_<key>.json, keyed by this
+session: p<pane> from $TMUX_PANE (e.g. %3 -> p3) for a session in a tmux pane,
+j<job> from $CLAUDE_JOB_DIR for a background session (claude --bg / agent view,
+which has no pane; an inherited $TMUX_PANE is ignored there). When the agent's
+turn ends, the Stop hook (hooks/context_watch.py) of the same session reads the
+file and types the command into its terminal via tmux_deliver.py — into the
+pane, or into a `claude attach` opened in a scratch tmux window. The file is keyed by
 pane and kept under $HOME, not in the repo, because the hook's cwd is Claude
 Code's tracked shell cwd, which matches neither this script's cwd nor the
 process cwd once the agent works in a worktree or subdirectory (see
@@ -120,11 +123,16 @@ def main():
     if repo is None:
         sys.exit("request_compact: no agent_notes/ in %s or any parent; this is not a research "
                  "repo, ask the user to run the compact" % cwd)
-    pane = os.environ.get("TMUX_PANE", "").strip()
-    if not pane:
-        sys.exit("request_compact: $TMUX_PANE empty (Claude Code is not inside tmux); "
-                 "ask the user to run the compact instead")
-    key = "p" + "".join(c for c in pane if c.isalnum())
+    job = os.path.basename(os.environ.get("CLAUDE_JOB_DIR", "").rstrip("/"))
+    pane = "" if job else os.environ.get("TMUX_PANE", "").strip()
+    if job:
+        key = "j" + "".join(c for c in job if c.isalnum())
+    elif pane:
+        key = "p" + "".join(c for c in pane if c.isalnum())
+    else:
+        sys.exit("request_compact: neither $TMUX_PANE (Claude Code inside tmux) nor "
+                 "$CLAUDE_JOB_DIR (a background session) is set, so the Stop hook cannot "
+                 "reach this session's terminal; ask the user to run the compact instead")
 
     task_state = None
     if command.split()[0] == "/compact":
@@ -152,7 +160,8 @@ def main():
     if then is None:
         then = ("continue task %s" % task_id) if task_id else "continue"
 
-    payload = {"pane": pane, "command": command, "then": then, "shell_cwd": cwd,
+    payload = {"key": key, "pane": pane, "job": job, "command": command, "then": then,
+               "shell_cwd": cwd,
                "repo": repo, "task": task_id, "task_state": task_state,
                "created": time.time(), "created_h": time.strftime("%Y-%m-%d %H:%M:%S")}
     try:
@@ -163,8 +172,9 @@ def main():
               "command." % (REQUEST_DIR, e), file=sys.stderr)
         final = write_request(os.path.join(cwd, ".claude", "autoresearch"), key, payload)
     print("compact request queued: %s" % final)
-    print("End your reply now; the Stop hook delivers it into pane %s%s." % (
-        pane, (", then types %r" % then) if then else ", no follow-up"))
+    print("End your reply now; the Stop hook delivers it into %s%s." % (
+        ("background session %s" % job) if job else ("pane %s" % pane),
+        (", then types %r" % then) if then else ", no follow-up"))
 
 
 if __name__ == "__main__":

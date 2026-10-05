@@ -30,7 +30,15 @@ RECOVER = ("Re-invoke the `autoresearch` skill, read the file below and the file
            "the conversation, are the source of truth.")
 
 
-def pane_key():
+def session_key():
+    """Delivery key of this Claude session: j<job> for a background session
+    (claude --bg / agent view: hosted by the daemon, no tmux pane of its own,
+    $CLAUDE_JOB_DIR names its job), else p<pane> for a session in a tmux pane.
+    A background session never uses an inherited $TMUX_PANE: that pane belongs
+    to the session that spawned it."""
+    job = os.path.basename(os.environ.get("CLAUDE_JOB_DIR", "").rstrip("/"))
+    if job:
+        return "j" + "".join(c for c in job if c.isalnum())
     pane = os.environ.get("TMUX_PANE", "").strip()
     return "p" + "".join(c for c in pane if c.isalnum()) if pane else ""
 
@@ -64,7 +72,7 @@ def index_path(repo):
 
 def take_request(cwd):
     """This pane's delivered compact request if fresh; consumed either way."""
-    key = pane_key()
+    key = session_key()
     if not key:
         return {}
     for d in (REQUEST_DIR, os.path.join(cwd, ".claude", "autoresearch")):
@@ -82,7 +90,7 @@ def take_request(cwd):
 
 def last_task():
     """Task folder the main agent of this pane last touched (hooks/context_watch.py)."""
-    key = pane_key()
+    key = session_key()
     if not key:
         return ""
     try:

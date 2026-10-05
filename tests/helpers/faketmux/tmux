@@ -19,5 +19,6 @@ case "$1" in
     else echo "idle prompt ready"; fi
     exit 0 ;;
   send-keys) exit 0 ;;
+  new-window) echo "%77"; exit 0 ;;
   *) exit 0 ;;
 esac

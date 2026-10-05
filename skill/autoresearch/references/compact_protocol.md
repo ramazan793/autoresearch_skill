@@ -43,7 +43,8 @@ conversation.
    has finished, types `continue task <task_id>` so you resume (`--then
    "<text>"` for a different follow-up, `--then ""` for none). Then **end your
    reply.**
-   - If it refuses (not inside tmux, no `agent_notes/`), fall back: end your
+   - If it refuses (neither inside tmux nor a background session, or no
+     `agent_notes/`), fall back: end your
      reply asking the user to paste the `/compact <msg>` line, and TG-ping
      that exact line (the only compact-related ping — routine compacts are
      silent).

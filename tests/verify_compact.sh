@@ -106,7 +106,7 @@ ck "request consumed -> last_compact_request_p3.json" "[ ! -f '$REQ/compact_requ
 ck "hook emitted no output (no nudge)" "[ ! -s '$T/hook3.out' ]"
 for _ in $(seq 1 40); do grep -q '^Enter$' "$T/ft3.log" 2>/dev/null && break; sleep 0.5; done
 ck "detached worker typed after the hook exited" "grep -q 'hook path works' '$T/ft3.log' && grep -q '^Enter$' '$T/ft3.log'"
-for _ in $(seq 1 30); do grep -q '^continue$' "$T/ft3.log" 2>/dev/null && break; sleep 0.5; done
+for _ in $(seq 1 30); do grep -q '^continue task' "$T/ft3.log" 2>/dev/null && break; sleep 0.5; done
 ck "default follow-up 'continue task <task_id>' typed after the command" "grep -q '^continue task 2026-10-05_08-00_t1$' '$T/ft3.log'"
 ck "deliver.log records the delivery" "grep -q 'typed into %3' '$REQ/deliver.log'"
 ( cd "$REPO3" && TMUX_PANE='%3' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact stale one' >/dev/null )
@@ -115,6 +115,21 @@ sleep 1
   : > "$FT_LOG"; : > "$FT_STATE"
   printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO3" | TMUX_PANE='%3' python3 "$HOOK" >/dev/null 2>&1 )
 ck "request older than the TTL is set aside as stale, nothing typed" "[ -f '$REQ/stale_compact_request_p3.json' ] && grep -q 'SKIPPED stale' '$REQ/deliver.log' && [ ! -s '$T/ft3s.log' ]"
+
+echo '=== 3b. background session (no tmux pane): job-keyed request, delivered via claude attach ==='
+REPO3B="$T/repo3b"; mkdir -p "$REPO3B/agent_notes/tasks/2026-10-05_08-00_t1"; : > "$REPO3B/agent_notes/tasks/2026-10-05_08-00_t1/STATE.md"
+JOBDIR="$HOME/.claude/jobs/abcd1234"; mkdir -p "$JOBDIR"
+( cd "$REPO3B" && env -u TMUX_PANE CLAUDE_JOB_DIR="$JOBDIR" python3 "$SCRIPTS/request_compact.py" --task t1 '/compact bg path works' >/dev/null 2>&1 ); RC=$?
+ck "bg: request accepted without \$TMUX_PANE, keyed by the job" "[ $RC -eq 0 ] && [ -f '$REQ/compact_request_jabcd1234.json' ]"
+( cd "$REPO3B" && TMUX_PANE='%1' CLAUDE_JOB_DIR="$JOBDIR" python3 "$SCRIPTS/request_compact.py" --task t1 '/compact bg ignores inherited pane' >/dev/null 2>&1 )
+ck "bg: an inherited \$TMUX_PANE is ignored (never types into the parent session's pane)" "grep -q 'ignores inherited pane' '$REQ/compact_request_jabcd1234.json' && [ ! -f '$REQ/compact_request_p1.json' ]"
+( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$T/ft3b.log" FT_STATE="$T/ft3b.state" FT_BUSY_CALLS=0 CLAUDE_JOB_DIR="$JOBDIR"
+  : > "$FT_LOG"; : > "$FT_STATE"
+  printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO3B" | env -u TMUX_PANE python3 "$HOOK" >/dev/null 2>&1 )
+for _ in $(seq 1 60); do grep -q '^kill-window$' "$T/ft3b.log" 2>/dev/null && break; sleep 0.5; done
+ck "bg: worker opened 'claude attach <job>' in a scratch window of the mars_deliver session" "grep -q '^claude attach abcd1234$' '$T/ft3b.log' && grep -q '^mars_deliver:$' '$T/ft3b.log'"
+ck "bg: typed into the attached window's pane, then C-z detach + kill-window" "grep -q 'bg ignores inherited pane' '$T/ft3b.log' && grep -q '^%77$' '$T/ft3b.log' && grep -q '^C-z$' '$T/ft3b.log' && grep -q '^kill-window$' '$T/ft3b.log'"
+ck "bg: deliver.log names the background session" "grep -q 'background session abcd1234' '$REQ/deliver.log'"
 
 echo '=== 4. live: request -> Stop hook -> real tmux pane ==='
 if [ "$have_tmux" -eq 0 ]; then echo 'SKIP: tmux not installed'; else
