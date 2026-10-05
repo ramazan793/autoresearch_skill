@@ -15,8 +15,8 @@ pass `model:` in the Agent call (it would override the pin).
   cornerstone work: real thinking, design, tricky code/math, anything that
   must execute and produce artifacts, final conclusions. **Default when
   unsure** — most real subtasks deserve it. **At most one at a time.**
-- `mars_top_opus` — Opus 5.5, xhigh, full tools: the same job, for the second
-  concurrent top-tier worker while a `mars_top` is running.
+- `mars_top_opus` — Opus 5.5, xhigh, full tools: the same job, for every
+  further concurrent top-tier worker (any number, see Parallelism).
 - `mars_aux` — Opus 5.5 (pre-frontier), xhigh, Write/Edit disallowed: the aux
   agent (next section).
 
@@ -37,13 +37,12 @@ offload, and adversarial cross-checks. Values:
 
 ## Parallelism
 
-- **Cap: 2 Claude agents at once**, aux agents included (with
-  `aux_model: opus5.5-xhigh` they are Claude agents). Do NOT exceed 2 unless
-  the user explicitly raises the cap for the task. Send concurrent agents in
-  ONE message so they run together.
 - **Fable is scarce: never more than one `mars_top` at a time**, even when the
-  session model is fable. Two top-tier workers in parallel = one `mars_top` +
-  one `mars_top_opus`; `mars_aux` and `mars_light` are never fable.
+  session model is fable. Every further concurrent top-tier worker is a
+  `mars_top_opus`; `mars_aux` and `mars_light` are never fable.
+- **Opus/Sonnet agents (`mars_top_opus`, `mars_aux`, `mars_light`): run as many
+  in parallel as the work splits into, up to 6 at once.** Beyond 6, ask the
+  user. Send concurrent agents in ONE message so they run together.
 - Independent work → parallelize. Dependent work → chain and pass results
   forward.
 

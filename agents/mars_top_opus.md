@@ -1,6 +1,6 @@
 ---
 name: mars_top_opus
-description: Autoresearch top-tier worker on Opus 5.5 at xhigh effort, full tools — the second concurrent cornerstone worker when a mars_top is already running (fable is scarce: at most one mars_top at a time). Same job as mars_top: design, tricky code or math, experiments that must execute and produce artifacts.
+description: Autoresearch top-tier worker on Opus 5.5 at xhigh effort, full tools — every further concurrent cornerstone worker beyond the single mars_top (fable is scarce: at most one mars_top at a time; up to 6 Opus/Sonnet agents in parallel). Same job as mars_top: design, tricky code or math, experiments that must execute and produce artifacts.
 model: claude-opus-5-5
 effort: xhigh
 ---

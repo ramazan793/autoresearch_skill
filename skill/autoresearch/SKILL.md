@@ -98,7 +98,8 @@ present. Mid-task questions obey working hours (§6).
 Follow `references/subagent_playbook.md`: spawn only the `mars_*` agents
 (`mars_light` / `mars_top` / `mars_top_opus` / `mars_aux` in
 `~/.claude/agents/` — model and effort are pinned there; never pass `model:`
-yourself; at most one `mars_top` at a time, fable is scarce), the parallelism cap,
+yourself; at most one `mars_top` at a time, fable is scarce; up to 6 Opus/Sonnet
+agents in parallel), the parallelism rules,
 the aux agent (`aux_model`, default Opus 5.5 xhigh = `mars_aux`; codex is
 off), self-contained context handoff files, adversarial verification of
 important results, and the fresh-context hard rule (one subagent = one task;

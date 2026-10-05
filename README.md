@@ -93,12 +93,13 @@ The **scripts**:
 The **agents** (`agents/mars_*.md`, installed to `~/.claude/agents/`):
 `mars_top` (session model, xhigh) for anything that needs thinking or must
 produce artifacts, at most one at a time because fable is scarce, with
-`mars_top_opus` (Opus 5.5) as the second concurrent worker; `mars_aux` (Opus
-5.5, xhigh, no file edits) for read-only
+`mars_top_opus` (Opus 5.5) for every further concurrent worker; `mars_aux`
+(Opus 5.5, xhigh, no file edits) for read-only
 discovery and adversarial cross-checks, a clean-context second opinion;
 `mars_light` (Sonnet, xhigh) for mechanical work such as log digests and
-greps, so the main context pays for the summary, not the log. Cap: two Claude
-agents at once. Codex is off; the playbook keeps it as an opt-in mode.
+greps, so the main context pays for the summary, not the log. Up to six
+Opus/Sonnet agents may run in parallel. Codex is off; the playbook keeps it as
+an opt-in mode.
 
 ## Layout
 
@@ -154,7 +155,8 @@ share it; the restore hook injects only the task's `STATE.md` (≤6000 bytes,
 whole sections) and the task is tracked per pane, so even a built-in
 auto-compact recovers the right one. Codex is replaced by pinned subagents
 (`mars_top` / `mars_top_opus` / `mars_aux` / `mars_light`; aux = Opus 5.5
-xhigh, read-only; at most one fable `mars_top` at a time).
+xhigh, read-only; at most one fable `mars_top` at a time, up to six Opus/Sonnet
+agents in parallel; the old cap of two is gone).
 Telegram: HTML messages, no compact pings (PreCompact hook retired), "waiting
 for you" muted while background jobs run, works from subdirectories, plain-text
 retry. `gpu_free.py`: `PRACTICALLY_FREE` statuses with util, sharing
