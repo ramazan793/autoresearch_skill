@@ -29,25 +29,30 @@ have_tmux=1; command -v tmux >/dev/null 2>&1 || have_tmux=0
 chmod +x "$HERE/helpers/faketmux/tmux"
 
 echo '=== 1. request_compact.py (agent-side queue) ==='
-REPO="$T/repo"; mkdir -p "$REPO/agent_notes" "$REPO/sub"
-( cd "$REPO" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" '/compact keep project ctx, details in notes' >/dev/null )
+REPO="$T/repo"; mkdir -p "$REPO/agent_notes" "$REPO/sub"; mkdir -p "$REPO/agent_notes/tasks/2026-10-05_08-00_t1"; : > "$REPO/agent_notes/tasks/2026-10-05_08-00_t1/STATE.md"
+( cd "$REPO" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact keep project ctx, details in notes' >/dev/null )
 J="$REQ/compact_request_p7.json"
 ck "request written into ~/.claude/autoresearch/, keyed by pane" "[ -f '$J' ] && grep -q '/compact keep project ctx' '$J'"
-( cd "$REPO/sub" && TMUX_PANE='%9' python3 "$SCRIPTS/request_compact.py" '/compact from a subdir' >/dev/null )
+ck "request records the task's STATE.md for the restore hook" "grep -q '\"task_state\": \"$REPO/agent_notes/tasks/2026-10-05_08-00_t1/STATE.md\"' '$J'"
+( cd "$REPO" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" '/compact no task' >/dev/null 2>&1 ); RC=$?
+ck "/compact without --task refused (nonzero)" "[ $RC -ne 0 ]"
+( cd "$REPO" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" --task nope '/compact y' >/dev/null 2>&1 ); RC=$?
+ck "--task without a STATE.md refused (nonzero)" "[ $RC -ne 0 ]"
+( cd "$REPO/sub" && TMUX_PANE='%9' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact from a subdir' >/dev/null )
 ck "queued from a subdirectory (agent cd'd): same location, shell cwd recorded" "grep -q '/compact from a subdir' '$REQ/compact_request_p9.json' && grep -q '\"shell_cwd\": \"$REPO/sub\"' '$REQ/compact_request_p9.json'"
-( cd "$REPO" && HOME=/nonexistent_home_xyz TMUX_PANE='%9' python3 "$SCRIPTS/request_compact.py" '/compact fallback' >/dev/null 2>&1 ); RC=$?
+( cd "$REPO" && HOME=/nonexistent_home_xyz TMUX_PANE='%9' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact fallback' >/dev/null 2>&1 ); RC=$?
 ck "HOME unwritable (sandbox): falls back into <cwd>/.claude/autoresearch/" "[ $RC -eq 0 ] && grep -q '/compact fallback' '$REPO/.claude/autoresearch/compact_request_p9.json'"
 ( cd "$REPO" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" 'rm -rf /tmp/x' >/dev/null 2>&1 ); RC=$?
 ck "non-allowlisted command refused (nonzero)" "[ $RC -ne 0 ]"
-( cd "$REPO" && unset TMUX_PANE && python3 "$SCRIPTS/request_compact.py" '/compact y' >/dev/null 2>&1 ); RC=$?
+( cd "$REPO" && unset TMUX_PANE && python3 "$SCRIPTS/request_compact.py" --task t1 '/compact y' >/dev/null 2>&1 ); RC=$?
 ck "missing \$TMUX_PANE refused (nonzero)" "[ $RC -ne 0 ]"
 mkdir -p "$T/plain"
-( cd "$T/plain" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" '/compact y' >/dev/null 2>&1 ); RC=$?
+( cd "$T/plain" && TMUX_PANE='%7' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact y' >/dev/null 2>&1 ); RC=$?
 ck "no agent_notes/ in cwd or above refused (nonzero)" "[ $RC -ne 0 ]"
-( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" '/compact keep z' --then '' >/dev/null )
+( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact keep z' --then '' >/dev/null )
 J8="$REQ/compact_request_p8.json"
 ck "--then after the command: '' means no follow-up, flag not leaked into the message" "grep -q '\"then\": \"\"' '$J8' && grep -q '\"command\": \"/compact keep z\"' '$J8'"
-( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" '/compact keep z' --then 'go on' >/dev/null )
+( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact keep z' --then 'go on' >/dev/null )
 ck "--then after the command: custom follow-up recorded" "grep -q '\"then\": \"go on\"' '$J8'"
 LONGMSG="/compact $(printf 'word %.0s' $(seq 1 200))"
 ( cd "$REPO" && TMUX_PANE='%8' python3 "$SCRIPTS/request_compact.py" "$LONGMSG" >/dev/null 2>&1 ); RC=$?
@@ -88,8 +93,8 @@ ck "--then with a slash command refused (nonzero)" "[ $RC -ne 0 ]"
 ck "--then: follow-up typed without further polling (queued by the TUI)" "[ \$(grep -c '^capture-pane$' '$FTLOG3') -eq 1 ]"
 
 echo '=== 3. Stop hook consumes request + detached worker (fake tmux shim) ==='
-REPO3="$T/repo3"; mkdir -p "$REPO3/agent_notes"
-( cd "$REPO3" && TMUX_PANE='%3' python3 "$SCRIPTS/request_compact.py" '/compact hook path works' >/dev/null )
+REPO3="$T/repo3"; mkdir -p "$REPO3/agent_notes"; mkdir -p "$REPO3/agent_notes/tasks/2026-10-05_08-00_t1"; : > "$REPO3/agent_notes/tasks/2026-10-05_08-00_t1/STATE.md"
+( cd "$REPO3" && TMUX_PANE='%3' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact hook path works' >/dev/null )
 ( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$T/ft3.log" FT_STATE="$T/ft3.state" FT_BUSY_CALLS=1
   : > "$FT_LOG"; : > "$FT_STATE"
   START=$(date +%s)
@@ -102,9 +107,9 @@ ck "hook emitted no output (no nudge)" "[ ! -s '$T/hook3.out' ]"
 for _ in $(seq 1 40); do grep -q '^Enter$' "$T/ft3.log" 2>/dev/null && break; sleep 0.5; done
 ck "detached worker typed after the hook exited" "grep -q 'hook path works' '$T/ft3.log' && grep -q '^Enter$' '$T/ft3.log'"
 for _ in $(seq 1 30); do grep -q '^continue$' "$T/ft3.log" 2>/dev/null && break; sleep 0.5; done
-ck "default follow-up 'continue' typed after the command" "grep -q '^continue$' '$T/ft3.log'"
+ck "default follow-up 'continue task <task_id>' typed after the command" "grep -q '^continue task 2026-10-05_08-00_t1$' '$T/ft3.log'"
 ck "deliver.log records the delivery" "grep -q 'typed into %3' '$REQ/deliver.log'"
-( cd "$REPO3" && TMUX_PANE='%3' python3 "$SCRIPTS/request_compact.py" '/compact stale one' >/dev/null )
+( cd "$REPO3" && TMUX_PANE='%3' python3 "$SCRIPTS/request_compact.py" --task t1 '/compact stale one' >/dev/null )
 sleep 1
 ( export PATH="$HERE/helpers/faketmux:$PATH" FT_LOG="$T/ft3s.log" FT_STATE="$T/ft3s.state" FT_BUSY_CALLS=0 AUTORESEARCH_REQUEST_TTL=0
   : > "$FT_LOG"; : > "$FT_STATE"
@@ -113,11 +118,11 @@ ck "request older than the TTL is set aside as stale, nothing typed" "[ -f '$REQ
 
 echo '=== 4. live: request -> Stop hook -> real tmux pane ==='
 if [ "$have_tmux" -eq 0 ]; then echo 'SKIP: tmux not installed'; else
-  REPO4="$T/repo4"; mkdir -p "$REPO4/agent_notes"
+  REPO4="$T/repo4"; mkdir -p "$REPO4/agent_notes"; mkdir -p "$REPO4/agent_notes/tasks/2026-10-05_08-00_t1"; : > "$REPO4/agent_notes/tasks/2026-10-05_08-00_t1/STATE.md"
   OUT4="$T/recv4.txt"; SESS4="verify_$$"
   tmux new-session -d -s "$SESS4" -x 120 -y 30 "python3 '$HERE/helpers/tui_stub.py' '$OUT4' 6 2"
   sleep 1
-  ( cd "$REPO4" && TMUX_PANE="$SESS4" python3 "$SCRIPTS/request_compact.py" --then 'go on' '/compact live hook delivery works' >/dev/null )
+  ( cd "$REPO4" && TMUX_PANE="$SESS4" python3 "$SCRIPTS/request_compact.py" --task t1 --then 'go on' '/compact live hook delivery works' >/dev/null )
   printf '{"cwd":"%s","hook_event_name":"Stop"}' "$REPO4" | TMUX_PANE="$SESS4" python3 "$HOOK"
   for _ in $(seq 1 60); do grep -q '^go on$' "$OUT4" 2>/dev/null && break; sleep 0.5; done
   ck "live: line submitted into the real pane" "grep -q '^/compact live hook delivery works$' '$OUT4' 2>/dev/null"

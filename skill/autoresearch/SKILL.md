@@ -19,8 +19,9 @@ Helper scripts live in `~/.claude/skills/autoresearch/scripts/`.
 
 ## 0. Task lifecycle
 
-intake interview → `PLAN.md` → execute → `REPORT.md` → cleanup + commit →
-checkpoint `STATE.md` → (compact protocol, only at a task boundary).
+intake interview → `PLAN.md` + task `STATE.md` + index line → execute
+(checkpoint the task `STATE.md` at milestones) → `REPORT.md` → cleanup + commit
+→ drop the index line → (compact protocol, only at a task boundary).
 
 ## 1. Task intake — anti-lazy interview (mandatory)
 
@@ -32,12 +33,39 @@ present. Mid-task questions obey working hours (§6).
 
 ## 2. Artifacts & entropy control
 
-- `agent_notes/tasks/<task_slug>/` — one folder per task. Starts with `PLAN.md`,
-  ends with `REPORT.md`; intermediate notes as needed; subagent scratch in
-  `subagents/` inside it.
+- `agent_notes/tasks/<task_id>/` — one flat folder per task, date-labeled:
+  `<task_id>` = `YYYY-MM-DD_HH-MM_<task_name>` (task start, Asia/Dubai:
+  `TZ=Asia/Dubai date +%Y-%m-%d_%H-%M`), e.g.
+  `agent_notes/tasks/2026-10-05_08-00_lr_sweep/`. Starts with `PLAN.md` and
+  `STATE.md`, ends with `REPORT.md`; intermediate notes as needed; subagent
+  scratch in `subagents/` inside it. Older flat `tasks/<name>/` folders stay
+  where they are.
+- `agent_notes/tasks/<task_id>/STATE.md` — the task's rolling checkpoint, a
+  **pointer file under 6000 bytes**: task status, key docs, running jobs, next
+  steps, pending assumptions (template in `references/compact_protocol.md`).
+  Update it at milestones (jobs launched, results in) and before any compact;
+  it is what comes back into context after a compact.
 - `agent_notes/docs/` — durable agent documentation. Update in place; never
   create a second doc about the same thing.
-- `agent_notes/STATE.md` — rolling session checkpoint (see §9).
+- The task **index** — `$(git rev-parse --git-common-dir)/autoresearch/STATE.md`
+  (= `.git/autoresearch/STATE.md` of the main checkout: one file shared by the
+  main checkout and all its worktrees, never under git). Read by many parallel
+  agents, so ultra-brief: one line per active task, ~15 lines max, no details.
+  ```
+  # STATE — <repo>
+  - <task_id> — <planning|running|blocked|parked> — <what, ≤10 words>
+  ```
+  Edit **only your own task's line** (re-read the file right before editing;
+  never rewrite or reorder other lines). Add it at task start; drop it once
+  the task is reported and committed. A tracked old-style `agent_notes/STATE.md`
+  → move its content into the matching task's `STATE.md`, then trash it (a
+  tracked index diverges per branch).
+- Git: `agent_notes/` notes **are committed** — markdown, plus small text
+  files the notes rely on (scripts, metric JSONs, short logs). Temporary
+  visualizations go to `vis/` and other generated artifacts (renders, videos,
+  dumps, checkpoints) to `artifacts/` inside the task folder; both are
+  gitignored (`agent_notes/**/vis/`, `agent_notes/**/artifacts/`) but stay on
+  disk, so REPORT.md can still point at them by absolute path.
 - Code: clean, minimal comments. Comments never turn into notes or logs — notes
   belong in `agent_notes/`. Prefer reusing code that is known to work over
   writing new code. Smallest diff that does the job.
@@ -61,24 +89,31 @@ present. Mid-task questions obey working hours (§6).
 
 ## 4. Git
 
-- Each task on its own branch created for it (`task/<slug>` unless the repo has
+- Each task on its own branch created for it (`task/<task_name>` unless the repo has
   its own scheme). Commit the finished work to that branch.
 - **Never merge.** The user reviews and decides whether and how to merge.
 
 ## 5. Subagents
 
-Follow `references/subagent_playbook.md`: model tiers, the 2-Claude parallelism
-cap with codex overflow, self-contained context handoff files, adversarial
-verification of important results, and the fresh-context hard rule (one
-subagent = one task; never keep refining a stale subagent).
+Follow `references/subagent_playbook.md`: spawn only the `mars_*` agents
+(`mars_light` / `mars_top` / `mars_aux` in `~/.claude/agents/` — model and
+effort are pinned there; never pass `model:` yourself), the parallelism cap,
+the aux agent (`aux_model`, default Opus 5.5 xhigh = `mars_aux`; codex is
+off), self-contained context handoff files, adversarial verification of
+important results, and the fresh-context hard rule (one subagent = one task;
+never keep refining a stale subagent).
 
 ## 6. Talking to the user, Telegram, working hours
 
 - Ping via `bash ~/.claude/skills/autoresearch/scripts/tg_notify.sh "<msg>"`
   when: (a) you need an answer from the user, (b) a task is complete or there
   are preliminary results (`REPORT.md` ready), (c) a long run finished or
-  crashed, (d) you are ready to compact. Message = 1–3 lines: what happened +
-  absolute path to the details.
+  crashed. Never ping about compacts — they are silent. Message = 1–3 lines:
+  a leading emoji + what happened (✅ done, 📊 results, 💥 crash, ❓ question),
+  then the absolute path to the details.
+- Background work (jobs, monitors, subagents) mutes the harness's own "Claude
+  is waiting for you" ping. If you end a turn with a question while anything
+  still runs in the background, TG-ping the question yourself.
 - Working hours: **10:00–22:00 Asia/Dubai** (user may adjust per situation).
   Check with `TZ=Asia/Dubai date +%H`.
   - Inside working hours: you may ask and wait for the answer.
@@ -89,32 +124,42 @@ subagent = one task; never keep refining a stale subagent).
 ## 7. GPUs
 
 - Before any GPU job:
-  `python3 ~/.claude/skills/autoresearch/scripts/gpu_free.py`
-  (15 s sampling window; avg util + avg VRAM + process owners).
-- Take only `FREE` GPUs. Never touch `PARKED` (someone's process holds VRAM
-  even at 0% util) or `BUSY`. Respect GPU constraints given at intake.
+  `python3 ~/.claude/skills/autoresearch/scripts/gpu_free.py --top <K> --need-gb <N>`
+  with the number of GPUs and the VRAM the job needs (15 s sampling window;
+  avg util + avg VRAM + process owners and ages). With K GPUs `FREE` it
+  returns at once; otherwise it watches shared candidates for 60 s before
+  trusting them.
+- Take `FREE` and `PRACTICALLY_FREE` GPUs. `PRACTICALLY_FREE` = someone's
+  long-running processes are there but use little of the GPU (the status shows
+  their avg util) and `--need-gb` VRAM is left — fine to share. Never take
+  `PRACTICALLY_FREE_NO_VRAM` or `BUSY`. Respect GPU constraints given at intake.
+- Sharing tolerance (`--share-util`): **≤25% avg util is enough for most
+  tasks** (the default). Light or latency-tolerant jobs (eval, inference,
+  debugging, small runs) may go up to `--share-util 50`. Speed/throughput
+  measurements: `FREE` only — a shared GPU skews timings.
 - Set `CUDA_VISIBLE_DEVICES` explicitly for every launch; state it in notes.
 
 ## 8. Cleanup (end of every task)
 
-- Actualize: finalize `REPORT.md`, update touched docs in place.
+- Actualize: finalize `REPORT.md`, update touched docs in place, mark the
+  task `STATE.md` done, drop the task's line from `agent_notes/STATE.md`.
 - Stale intermediates, dead code, scratch files →
   `python3 ~/.claude/skills/autoresearch/scripts/trash.py <paths...>`
   (moves into repo `trash/`; the user empties it). Never delete — always trash.
-- Ensure `.gitignore` covers `trash/` and `.claude/`. Commit the task branch.
+- Ensure `.gitignore` covers `trash/`, `.claude/`, `agent_notes/**/vis/` and
+  `agent_notes/**/artifacts/`. Commit the task branch (notes included).
 
 ## 9. Compact protocol
 
 Follow `references/compact_protocol.md`. Triggers: a `[context-watch]` nudge
 (context above the limit) or your own judgment at a task boundary. **Never
 compact mid-task** — reach a clean stopping point first. The agent issues the
-compact **itself**, autonomously: stage everything (STATE.md + the compact
-message), TG-ping, then queue it with `scripts/request_compact.py "/compact
-<msg>"` (a pane-keyed file under `~/.claude/autoresearch/`, so any shell cwd
-works; the Stop hook types it into your tmux pane when your turn ends — see
-`references/self_compact.md`). No human
-keystroke; falls back to asking the user only if `request_compact.py` refuses
-(not inside tmux).
+compact **itself**, autonomously: stage everything (the task `STATE.md` + the
+compact message), then queue it with `scripts/request_compact.py --task <task_id>
+"/compact <msg>"` (a pane-keyed file under `~/.claude/autoresearch/`, so any
+shell cwd works; the Stop hook types it into your tmux pane when your turn
+ends — see `references/self_compact.md`). No human keystroke; falls back to
+asking the user only if `request_compact.py` refuses (not inside tmux).
 
 ## 10. Skepticism
 

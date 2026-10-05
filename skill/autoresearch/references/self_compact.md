@@ -9,10 +9,12 @@ in `$TMUX_PANE`.
 
 ## Flow
 
-1. Agent: `python3 ~/.claude/skills/autoresearch/scripts/request_compact.py "/compact <msg>"`
+1. Agent: `python3 ~/.claude/skills/autoresearch/scripts/request_compact.py --task <task_id> "/compact <msg>"`
    writes `~/.claude/autoresearch/compact_request_<pane>.json` (pane =
    `$TMUX_PANE`, e.g. `%3` → `p3`; only `/compact` and `/clear` are accepted,
-   max 800 chars — the message is 1–2 sentences, details live in STATE.md).
+   max 800 chars — the message is 1–2 sentences, details live in the task's
+   STATE.md; `--task` defaults to the task folder this pane last touched and
+   that STATE.md must exist and be under 6000 bytes).
    Any shell cwd is fine — a worktree, a subdirectory, anywhere with
    `agent_notes/` in it or above it. The agent then ends its reply.
 
@@ -46,8 +48,15 @@ in `$TMUX_PANE`.
    (one log for all panes and repos; each line names the pane, and the
    pickup line names the shell cwd, the file found and the hook cwd).
    On failure it TG-pings the line for the user to paste.
-4. Compaction runs; the SessionStart(compact) hook restores `STATE.md`.
-5. 2 s later the worker types the follow-up (`continue` by default;
+4. Compaction runs; the SessionStart(compact) hook
+   (`hooks/post_compact_state.py`) consumes `last_compact_request_<pane>.json`
+   (renamed to `restored_compact_request_<pane>.json`) and restores that task's
+   STATE.md — whole `## ` sections within `AUTORESEARCH_STATE_MAX` (6000)
+   bytes, the rest named — plus one recovery sentence. No fresh request
+   (built-in auto-compact) → the task is taken from `task_<pane>.json`, the
+   folder the main agent last touched (recorded by `hooks/context_watch.py` on
+   every PostToolUse). Neither → the task index is injected instead.
+5. 2 s later the worker types the follow-up (`continue task <task_id>` by default;
    `request_compact.py --then "<text>"` to change it, `--then ""` for none;
    plain messages only). Claude Code queues input typed during compaction
    and runs it as the next turn (observed on 2.1.251), so the session

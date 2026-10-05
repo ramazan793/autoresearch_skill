@@ -16,7 +16,7 @@ touch each other's state.
 2. Context watch (Stop and PostToolUse), state in <cwd>/.claude/autoresearch/:
    nudge the agent to run the compact
    protocol when session context exceeds AUTORESEARCH_CTX_LIMIT tokens
-   (default 250000). Stop: blocks the stop with the nudge as reason.
+   (default 350000). Stop: blocks the stop with the nudge as reason.
    PostToolUse: injects the nudge as additionalContext mid-turn. One nudge per
    threshold crossing; re-nudges after AUTORESEARCH_CTX_STEP tokens of
    further growth. The dampener resets as soon as the context shrinks (a
@@ -35,11 +35,12 @@ open on any error.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 
-LIMIT = int(os.environ.get("AUTORESEARCH_CTX_LIMIT", 250000))
+LIMIT = int(os.environ.get("AUTORESEARCH_CTX_LIMIT", 350000))
 SUB_LIMIT = int(os.environ.get("AUTORESEARCH_SUB_CTX_LIMIT", 350000))
 SUB_MIN_GROWTH = int(os.environ.get("AUTORESEARCH_SUB_MIN_GROWTH", 5000))
 STEP = int(os.environ.get("AUTORESEARCH_CTX_STEP", 40000))
@@ -55,9 +56,10 @@ NUDGE = (
     "start anything new. If you are mid-task, bring the current task to a clean "
     "stopping point first. Then run the autoresearch compact protocol "
     "(~/.claude/skills/autoresearch/references/compact_protocol.md): actualize "
-    "artifacts, update agent_notes/STATE.md incl. the 1-2 sentence compact "
-    "message, TG-ping 'ready to compact', then queue the compact with "
-    "scripts/request_compact.py and end your reply. Fall back to asking the user "
+    "artifacts, update your task's agent_notes/tasks/<task_id>/STATE.md incl. the "
+    "1-2 sentence compact message (and your line in the agent_notes/STATE.md "
+    "index), then queue the compact with "
+    "scripts/request_compact.py --task <task_id> and end your reply. Fall back to asking the user "
     "to run it only if request_compact.py refuses."
 )
 
@@ -65,10 +67,36 @@ SUB_NUDGE = (
     "[context-watch] Your context (subagent) is ~{ctx}k tokens (limit {limit}k). "
     "Do not start anything new. Write everything you have so far (results, "
     "state, what remains) to your handoff/scratch file (the path given in your "
-    "task; otherwise agent_notes/tasks/<task>/subagents/<your_name>_state.md), "
+    "task; otherwise agent_notes/tasks/<task_id>/subagents/<your_name>_state.md), "
     "then return to the main agent now with a short summary and that path. The "
     "main agent spawns a fresh successor from the file. Subagents never compact."
 )
+
+
+TASK_RE = re.compile(r"agent_notes/tasks/([A-Za-z0-9][A-Za-z0-9_.-]*)")
+
+
+def remember_task(key, blob, cwd):
+    """Record the task folder named in a tool call as this pane's current task
+    (task_<pane>.json), so the restore hook and request_compact.py know the
+    task even after a built-in auto-compact. Rewritten only when it changes."""
+    hits = TASK_RE.findall(blob)
+    if not hits:
+        return
+    path = os.path.join(REQUEST_DIR, "task_%s.json" % key)
+    try:
+        with open(path) as f:
+            if json.load(f).get("task") == hits[-1]:
+                return
+    except (OSError, ValueError):
+        pass
+    try:
+        os.makedirs(REQUEST_DIR, exist_ok=True)
+        with open(path + ".tmp", "w") as f:
+            json.dump({"task": hits[-1], "cwd": cwd, "seen": time.time()}, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
 
 
 def pane_key():
@@ -227,6 +255,9 @@ def main():
     event = data.get("hook_event_name") or "Stop"
     pane = os.environ.get("TMUX_PANE", "").strip()
     key = pane_key() or "nopane"
+
+    if event == "PostToolUse" and pane and not data.get("agent_id"):
+        remember_task(key, json.dumps(data.get("tool_input") or {}), cwd)
 
     # Job 1: compact delivery, keyed by pane, independent of cwd and of the
     # agent_notes/ gate (see module docstring). Subagents never deliver.

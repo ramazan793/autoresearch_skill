@@ -6,4 +6,6 @@
 Any research task in this repo — experiments, training runs, ablations, method
 work, analysis, reports — MUST follow the `autoresearch` skill: invoke it
 before starting work. Artifacts follow the `agent_notes/` discipline from that
-skill. After any compact, re-read `agent_notes/STATE.md` first.
+skill. After any compact, re-read your task's
+`agent_notes/tasks/<task_id>/STATE.md` first; the task index is
+`$(git rev-parse --git-common-dir)/autoresearch/STATE.md`.

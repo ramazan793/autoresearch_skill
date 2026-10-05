@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Merge autoresearch config into ~/.claude/settings.json (idempotent).
 
-Adds the four hook entries and, when the Bash sandbox is enabled, allowlists
-api.telegram.org in sandbox.network.allowedDomains so tg_notify.sh works from
-inside sessions. Backs up the existing file to settings.json.bak.<timestamp>
-first. Safe to re-run; skips entries that are already present.
+Adds the four hook entries, drops entries of retired hooks, and, when the Bash
+sandbox is enabled, allowlists api.telegram.org in sandbox.network.allowedDomains
+so tg_notify.sh works from inside sessions. Backs up the existing file to
+settings.json.bak.<timestamp> first. Safe to re-run; skips entries that are
+already present.
 """
 import json
 import os
@@ -14,12 +15,12 @@ import time
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 HOOK_DIR = "$HOME/.claude/skills/autoresearch/hooks"
 SANDBOX_DOMAINS = ["api.telegram.org"]
+RETIRED = ["precompact_notify.py"]  # hooks removed from the package
 
 ENTRIES = {
     "Stop": {"matcher": None, "command": "python3 %s/context_watch.py" % HOOK_DIR},
     "PostToolUse": {"matcher": None, "command": "python3 %s/context_watch.py" % HOOK_DIR},
     "SessionStart": {"matcher": "compact", "command": "python3 %s/post_compact_state.py" % HOOK_DIR},
-    "PreCompact": {"matcher": "auto", "command": "python3 %s/precompact_notify.py" % HOOK_DIR},
     "Notification": {"matcher": None, "command": "python3 %s/notification_tg.py" % HOOK_DIR},
 }
 
@@ -32,6 +33,14 @@ def main():
         shutil.copy2(SETTINGS, SETTINGS + ".bak." + time.strftime("%Y%m%d_%H%M%S"))
     hooks = settings.setdefault("hooks", {})
     changed = False
+    for event in list(hooks):
+        kept = [g for g in hooks[event] if not any(r in json.dumps(g) for r in RETIRED)]
+        if len(kept) != len(hooks[event]):
+            changed = True
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
     for event, spec in ENTRIES.items():
         groups = hooks.setdefault(event, [])
         if any(spec["command"] in json.dumps(g) for g in groups):

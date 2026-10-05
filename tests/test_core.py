@@ -30,7 +30,7 @@ syntax_errs = []
 for py in [os.path.join(SK, "gpu_free.py"), os.path.join(SK, "trash.py"),
            os.path.join(SK, "tmux_deliver.py"), os.path.join(SK, "request_compact.py"),
            os.path.join(HK, "context_watch.py"), os.path.join(HK, "post_compact_state.py"),
-           os.path.join(HK, "precompact_notify.py"), os.path.join(HK, "notification_tg.py"),
+           os.path.join(HK, "notification_tg.py"),
            os.path.join(SRC, "merge_settings.py")]:
     try:
         compile(open(py).read(), py, "exec")
@@ -42,7 +42,7 @@ for sh in [os.path.join(SK, "tg_notify.sh"), os.path.join(SRC, "install.sh")]:
     check("bash -n " + os.path.basename(sh), r.returncode == 0, r.stderr.strip())
 
 r = run([sys.executable, os.path.join(SK, "gpu_free.py"), "--help"])
-check("gpu_free --help", r.returncode == 0 and "PARKED" in r.stdout)
+check("gpu_free --help", r.returncode == 0 and "PRACTICALLY_FREE" in r.stdout)
 
 repo = os.path.join(T, "repo")
 os.makedirs(os.path.join(repo, ".git"))
@@ -110,34 +110,34 @@ def stop_hook(ctx, cwd, active=False, sid="s1"):
 
 r = stop_hook(100000, research)
 check("watch: under limit silent", r.returncode == 0 and r.stdout.strip() == "", r.stdout[:100])
-r = stop_hook(260000, research)
+r = stop_hook(360000, research)
 try:
     out = json.loads(r.stdout)
 except ValueError:
     out = {}
 check("watch: over limit blocks (skips sidechain)",
-      out.get("decision") == "block" and "260k" in out.get("reason", ""), r.stdout[:120])
-r = stop_hook(265000, research)
+      out.get("decision") == "block" and "360k" in out.get("reason", ""), r.stdout[:120])
+r = stop_hook(365000, research)
 check("watch: dampener suppresses re-nudge", r.stdout.strip() == "", r.stdout[:100])
-r = stop_hook(305000, research)
+r = stop_hook(505000, research)
 try:
     out2 = json.loads(r.stdout)
 except ValueError:
     out2 = {}
 check("watch: re-nudges after +40k growth", out2.get("decision") == "block", r.stdout[:100])
-r = stop_hook(320000, research, active=True)
+r = stop_hook(420000, research, active=True)
 check("watch: stop_hook_active loop guard", r.stdout.strip() == "")
 r = stop_hook(60000, research)
 check("watch: silent + reset after compact", r.stdout.strip() == "")
-r = stop_hook(260000, research)
+r = stop_hook(360000, research)
 try:
     out3 = json.loads(r.stdout)
 except ValueError:
     out3 = {}
 check("watch: re-arms after reset", out3.get("decision") == "block", r.stdout[:100])
-r = stop_hook(200000, research)
+r = stop_hook(300000, research)
 check("watch: context shrank below the last nudge (compact) -> silent + re-armed", r.stdout.strip() == "")
-r = stop_hook(255000, research)
+r = stop_hook(355000, research)
 try:
     out3b = json.loads(r.stdout)
 except ValueError:
@@ -146,10 +146,10 @@ check("watch: first crossing after a compact nudges again without waiting +STEP"
       out3b.get("decision") == "block", r.stdout[:100])
 plain = os.path.join(T, "plain")
 os.makedirs(plain)
-r = stop_hook(400000, plain)
+r = stop_hook(500000, plain)
 check("watch: non-research repo silent", r.stdout.strip() == "")
 
-write_transcript(400000)
+write_transcript(500000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")],
         input=json.dumps({"session_id": "s1", "transcript_path": transcript, "cwd": research,
                           "hook_event_name": "PostToolUse", "tool_name": "Bash"}))
@@ -161,7 +161,7 @@ hso = out4.get("hookSpecificOutput", {})
 check("watch: PostToolUse nudges mid-turn via additionalContext",
       hso.get("hookEventName") == "PostToolUse" and "[context-watch]" in hso.get("additionalContext", "")
       and "decision" not in out4, r.stdout[:100])
-r = stop_hook(405000, research)
+r = stop_hook(505000, research)
 check("watch: Stop after a PostToolUse nudge is dampened", r.stdout.strip() == "")
 write_transcript(900000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")],
@@ -228,7 +228,7 @@ env_p5["FT_LOG"] = os.path.join(T, "ft_core.log")
 env_p5["FT_STATE"] = os.path.join(T, "ft_core.state")
 env_p5["FT_BUSY_CALLS"] = "0"
 os.chmod(os.path.join(SRC, "tests/helpers/faketmux/tmux"), 0o755)
-write_transcript(500000)
+write_transcript(600000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,
         input=json.dumps({"session_id": "s1", "transcript_path": transcript, "cwd": research,
                           "hook_event_name": "Stop", "stop_hook_active": False}))
@@ -255,30 +255,126 @@ check("stop hook: request older than the TTL is set aside as stale, not typed",
       not os.path.exists(mine) and os.path.isfile(os.path.join(req_dir, "stale_compact_request_p5.json"))
       and "SKIPPED stale" in open(os.path.join(req_dir, "deliver.log")).read(), r.stderr[:80])
 
-state_md = os.path.join(research, "agent_notes", "STATE.md")
-open(state_md, "w").write("# STATE\n## Compact message\nKeep X.\n")
-payload = {"cwd": research, "hook_event_name": "SessionStart", "source": "compact"}
-r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload))
+state_md = os.path.join(research, "agent_notes", "STATE.md")  # index (repo not under git)
+open(state_md, "w").write("# STATE\n- 2026-10-05_08-00_t1 — running — index line X\n")
+task_dir = os.path.join(research, "agent_notes", "tasks", "2026-10-05_08-00_t1")
+os.makedirs(task_dir)
+open(os.path.join(task_dir, "STATE.md"), "w").write("# STATE t1\n## Next steps\n- task step Y\n")
+sub = os.path.join(research, "sub")
+os.makedirs(sub)
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "--task", "t1", "/compact keep"],
+        cwd=sub, env=env_p5)
+reqf = os.path.join(req_dir, "compact_request_p5.json")
+check("request: bare task name resolves to the dated folder; from a subdir",
+      r.returncode == 0 and json.load(open(reqf))["task_state"] == os.path.join(task_dir, "STATE.md"),
+      r.stderr[:100])
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "/compact keep"], cwd=research, env=env_p5)
+check("request: /compact without --task refused", r.returncode != 0 and "--task" in r.stderr)
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "--task", "nope", "/compact keep"],
+        cwd=research, env=env_p5)
+check("request: --task without STATE.md refused", r.returncode != 0 and "STATE.md" in r.stderr)
+os.replace(reqf, os.path.join(req_dir, "last_compact_request_p5.json"))  # what the Stop hook does
+payload = {"cwd": sub, "hook_event_name": "SessionStart", "source": "compact"}
+r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload), env=env_p5)
 try:
     out = json.loads(r.stdout)
 except ValueError:
     out = {}
 ac = out.get("hookSpecificOutput", {}).get("additionalContext", "")
-check("restore: returns STATE.md + recovery text",
-      "Keep X." in ac and "autoresearch" in ac
+check("restore: the requested task's STATE.md + recovery sentence, no index",
+      "task step Y" in ac and "index line X" not in ac and "autoresearch" in ac
       and out.get("hookSpecificOutput", {}).get("hookEventName") == "SessionStart", r.stdout[:80])
+check("restore: request consumed (renamed restored_*)",
+      os.path.isfile(os.path.join(req_dir, "restored_compact_request_p5.json")))
+r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload), env=env_p5)
+ac2 = r.stdout
+check("restore: no request, no touched task -> index + find-your-task text",
+      "index line X" in ac2 and "task step Y" not in ac2 and "no record names your task" in ac2, r.stdout[:80])
+# the main agent touched a task folder -> context_watch remembers it per pane
+write_transcript(1000)
+r = run([sys.executable, os.path.join(HK, "context_watch.py")], env=env_p5,
+        input=json.dumps({"session_id": "s1", "transcript_path": transcript, "cwd": research,
+                          "hook_event_name": "PostToolUse", "tool_name": "Write",
+                          "tool_input": {"file_path": os.path.join(task_dir, "PLAN.md"), "content": "x"}}))
+taskf = os.path.join(req_dir, "task_p5.json")
+check("watch: PostToolUse records the touched task folder per pane",
+      os.path.isfile(taskf) and json.load(open(taskf))["task"] == "2026-10-05_08-00_t1", r.stderr[:80])
+r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload), env=env_p5)
+check("restore: no request (auto-compact) -> last touched task's STATE.md, no index",
+      "task step Y" in r.stdout and "last touched" in r.stdout and "index line X" not in r.stdout, r.stdout[:80])
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "/compact keep"], cwd=research, env=env_p5)
+check("request: --task omitted -> defaults to the last touched task; follow-up names it",
+      r.returncode == 0 and json.load(open(reqf))["task"] == "2026-10-05_08-00_t1"
+      and json.load(open(reqf))["then"] == "continue task 2026-10-05_08-00_t1", r.stderr[:80])
+open(os.path.join(task_dir, "STATE.md"), "w").write(
+    "# STATE t1\n\n## Compact message\nKeep Z.\n\n## Pointers\n- task step Y\n\n## Running jobs\n"
+    + "- job line\n" * 700 + "\n## Next steps\n- step N\n\n## Assumptions\n- none\n")
+r = run([sys.executable, os.path.join(SK, "request_compact.py"), "--task", "t1", "/compact keep"],
+        cwd=research, env=env_p5)
+check("request: STATE.md over AUTORESEARCH_STATE_MAX refused", r.returncode != 0 and "bytes" in r.stderr)
+env_big = dict(env_p5)
+env_big["AUTORESEARCH_STATE_MAX"] = "400"
+r = run([sys.executable, os.path.join(HK, "post_compact_state.py")], input=json.dumps(payload), env=env_big)
+check("restore: trim keeps the sections that fit, skips 'Compact message', names the oversized one",
+      "task step Y" in r.stdout and "Keep Z." not in r.stdout and "job line" not in r.stdout
+      and "step N" in r.stdout and "omitted for size, read the file for: Running jobs" in r.stdout,
+      r.stdout[-200:])
+open(os.path.join(task_dir, "STATE.md"), "w").write("# STATE t1\n## Next steps\n- task step Y\n")
 r = run([sys.executable, os.path.join(HK, "post_compact_state.py")],
         input=json.dumps({"cwd": plain}))
-check("restore: silent without STATE.md", r.stdout.strip() == "")
+check("restore: silent outside research repos", r.stdout.strip() == "")
+
+# notification hook: fake tg_notify.sh under a fake HOME logs what would be sent
+nhome = os.path.join(T, "nhome")
+nsk = os.path.join(nhome, ".claude", "skills", "autoresearch", "scripts")
+os.makedirs(nsk)
+tglog = os.path.join(T, "tg.log")
+open(os.path.join(nsk, "tg_notify.sh"), "w").write('#!/bin/bash\nprintf "%s\\n" "$*" >> "%s"\n' % ("%s", tglog))
+env_n = dict(os.environ)
+env_n["HOME"] = nhome
+bg_dir = os.path.join(T, "tasks")
+os.makedirs(bg_dir)
+bg_out = os.path.join(bg_dir, "bg1.output")
+open(bg_out, "w").write("")
+ntr = os.path.join(T, "ntranscript.jsonl")
+open(ntr, "w").write(json.dumps({"type": "assistant", "message": {"content": [
+    {"type": "text", "text": "Output is being written to: %s" % bg_out}]}}) + "\n")
+idle = {"cwd": sub, "transcript_path": ntr, "notification_type": "idle_prompt",
+        "message": "Claude is waiting for your input"}
+
+
+def tg_sent():
+    return open(tglog).read() if os.path.isfile(tglog) else ""
+
+
+r = run([sys.executable, os.path.join(HK, "notification_tg.py")], input=json.dumps(idle), env=env_n)
+check("notify: idle muted while a background task is alive (fresh output file)",
+      r.returncode == 0 and tg_sent() == "", r.stderr[:80] + tg_sent()[:80])
+old = time.time() - 3600
+os.utime(bg_out, (old, old))
+r = run([sys.executable, os.path.join(HK, "notification_tg.py")], input=json.dumps(idle), env=env_n)
+check("notify: stale task (old file, not open) does not mute; HTML ping from a subdir cwd",
+      "waiting for you" in tg_sent() and "--html" in tg_sent() and "research" in tg_sent(), tg_sent()[:120])
+open(tglog, "w").write("")
+open(bg_out, "w").write("")
+open(ntr, "a").write(json.dumps({"type": "user", "message": {"content":
+    "<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>"}}) + "\n")
+r = run([sys.executable, os.path.join(HK, "notification_tg.py")], input=json.dumps(idle), env=env_n)
+check("notify: completed task no longer mutes", "waiting for you" in tg_sent(), tg_sent()[:80])
+open(tglog, "w").write("")
+r = run([sys.executable, os.path.join(HK, "notification_tg.py")], env=env_n,
+        input=json.dumps({"cwd": sub, "transcript_path": ntr, "notification_type": "permission_prompt",
+                          "message": "Claude needs your permission to use Bash"}))
+check("notify: approval prompt always pings", "approval" in tg_sent(), tg_sent()[:80])
+r = run([sys.executable, os.path.join(HK, "notification_tg.py")], env=env_n,
+        input=json.dumps({"cwd": plain, "message": "needs input"}))
+check("notify: silent outside research repos", r.returncode == 0 and "needs input" not in tg_sent())
 
 fake_home_env = dict(os.environ)
 fake_home_env["HOME"] = os.path.join(T, "nohome")
 r = run([sys.executable, os.path.join(HK, "notification_tg.py")],
         input=json.dumps({"cwd": research, "message": "needs input"}), env=fake_home_env)
 check("notify hook: clean no-op when uninstalled", r.returncode == 0, r.stderr.strip())
-r = run([sys.executable, os.path.join(HK, "precompact_notify.py")],
-        input=json.dumps({"cwd": research, "trigger": "auto"}), env=fake_home_env)
-check("precompact hook: clean no-op when uninstalled", r.returncode == 0, r.stderr.strip())
 
 env = dict(os.environ)
 env["TG_CONF"] = os.path.join(T, "none.env")
@@ -289,28 +385,45 @@ check("tg_notify unconfigured -> exit 1", r.returncode == 1 and "not set" in r.s
 
 fake = os.path.join(T, "fakehome")
 os.makedirs(os.path.join(fake, ".claude"))
-json.dump({"model": "m", "sandbox": {"enabled": True, "filesystem": {"allowWrite": ["."]}}},
+json.dump({"model": "m", "sandbox": {"enabled": True, "filesystem": {"allowWrite": ["."]}},
+           "hooks": {"PreCompact": [{"matcher": "auto", "hooks": [{"type": "command",
+                     "command": "python3 $HOME/.claude/skills/autoresearch/hooks/precompact_notify.py"}]}]}},
           open(os.path.join(fake, ".claude", "settings.json"), "w"))
 env = dict(os.environ)
 env["HOME"] = fake
 r1 = run([sys.executable, os.path.join(SRC, "merge_settings.py")], env=env)
 s = json.load(open(os.path.join(fake, ".claude", "settings.json")))
 hooks = s.get("hooks", {})
-check("merge: adds 5 hook events, keeps existing keys",
-      all(k in hooks for k in ["Stop", "PostToolUse", "SessionStart", "PreCompact", "Notification"])
+check("merge: adds 4 hook events, keeps existing keys",
+      all(k in hooks for k in ["Stop", "PostToolUse", "SessionStart", "Notification"])
       and s.get("model") == "m", r1.stdout.strip())
+check("merge: drops the retired PreCompact hook entry", "PreCompact" not in hooks)
 check("merge: sandbox allowlists api.telegram.org, keeps allowWrite",
       "api.telegram.org" in s["sandbox"]["network"]["allowedDomains"]
       and s["sandbox"]["filesystem"]["allowWrite"] == ["."])
 check("merge: SessionStart matcher=compact",
       hooks.get("SessionStart", [{}])[0].get("matcher") == "compact")
-check("merge: PreCompact matcher=auto",
-      hooks.get("PreCompact", [{}])[0].get("matcher") == "auto")
 r2 = run([sys.executable, os.path.join(SRC, "merge_settings.py")], env=env)
 s2 = json.load(open(os.path.join(fake, ".claude", "settings.json")))
 check("merge: idempotent", "already present" in r2.stdout and s2 == s)
 baks = [n for n in os.listdir(os.path.join(fake, ".claude")) if n.startswith("settings.json.bak")]
 check("merge: backup created", len(baks) >= 1)
+
+ihome = os.path.join(T, "ihome")
+os.makedirs(os.path.join(ihome, ".claude"))
+env_i = dict(os.environ)
+env_i["HOME"] = ihome
+r = run(["bash", os.path.join(SRC, "install.sh")], env=env_i)
+check("install: skill, agents and telegram.env template land under $HOME",
+      r.returncode == 0
+      and os.path.isfile(os.path.join(ihome, ".claude/skills/autoresearch/SKILL.md"))
+      and all(os.path.isfile(os.path.join(ihome, ".claude/agents/mars_%s.md" % a))
+              for a in ("light", "top", "aux"))
+      and os.path.isfile(os.path.join(ihome, ".config/autoresearch/telegram.env")), r.stderr[:120])
+agents = {a: open(os.path.join(SRC, "agents/mars_%s.md" % a)).read() for a in ("light", "top", "aux")}
+check("agents: model + effort pinned in every mars_* definition",
+      all("\nmodel: " in t and "\neffort: " in t and "\nname: mars_%s\n" % a in t for a, t in agents.items())
+      and "claude-opus-5-5" in agents["aux"] and "disallowedTools: Write, Edit" in agents["aux"])
 
 print()
 fails = [n for n, okk in results if not okk]
