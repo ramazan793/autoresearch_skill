@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # verify_compact.sh — proves the autonomous-compact machinery end to end.
-# Run it yourself (it drives tmux and spawns background processes):
+# It drives tmux and spawns background processes (fine from a shell or an agent):
 #     bash <package>/tests/verify_compact.sh
 #
 # Covers:

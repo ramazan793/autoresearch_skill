@@ -83,4 +83,4 @@ paste the `/compact <msg>` line (also included in the TG ping).
 ## Verify
 
 `bash tests/verify_compact.sh` from the package checkout checks
-queue → hook → worker → pane, including a live tmux pane. Run it yourself.
+queue → hook → worker → pane, including a live tmux pane.

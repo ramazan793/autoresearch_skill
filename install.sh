@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the autoresearch skill + hooks + mars_* agents into ~/.claude.
-# Run it YOURSELF (agents can't write into ~/.claude):  bash install.sh
+# Usage: bash install.sh   (idempotent; fine from a shell or from an agent)
 # Works the same on the Mac and on Linux GPU servers — copy this whole
 # folder to the server (scp/rsync/git) and run it there too.
 set -euo pipefail

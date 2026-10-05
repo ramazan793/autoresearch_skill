@@ -123,7 +123,7 @@ per-pane task records, `deliver.log`).
 
 ## Install
 
-On each machine, as yourself (not from an agent):
+On each machine (from a shell or from an agent, it is idempotent):
 
 ```
 git clone git@github.com:ramazan793/autoresearch_skill.git && cd autoresearch_skill
