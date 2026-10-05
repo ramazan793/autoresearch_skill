@@ -418,12 +418,14 @@ check("install: skill, agents and telegram.env template land under $HOME",
       r.returncode == 0
       and os.path.isfile(os.path.join(ihome, ".claude/skills/autoresearch/SKILL.md"))
       and all(os.path.isfile(os.path.join(ihome, ".claude/agents/mars_%s.md" % a))
-              for a in ("light", "top", "aux"))
+              for a in ("light", "top", "top_opus", "aux"))
       and os.path.isfile(os.path.join(ihome, ".config/autoresearch/telegram.env")), r.stderr[:120])
-agents = {a: open(os.path.join(SRC, "agents/mars_%s.md" % a)).read() for a in ("light", "top", "aux")}
+agents = {a: open(os.path.join(SRC, "agents/mars_%s.md" % a)).read()
+          for a in ("light", "top", "top_opus", "aux")}
 check("agents: model + effort pinned in every mars_* definition",
       all("\nmodel: " in t and "\neffort: " in t and "\nname: mars_%s\n" % a in t for a, t in agents.items())
-      and "claude-opus-5-5" in agents["aux"] and "disallowedTools: Write, Edit" in agents["aux"])
+      and "claude-opus-5-5" in agents["aux"] and "disallowedTools: Write, Edit" in agents["aux"]
+      and "model: inherit" in agents["top"] and "model: claude-opus-5-5" in agents["top_opus"])
 
 print()
 fails = [n for n, okk in results if not okk]

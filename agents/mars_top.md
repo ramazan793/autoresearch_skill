@@ -1,6 +1,6 @@
 ---
 name: mars_top
-description: Autoresearch top-tier worker — cornerstone subtasks that need real thinking: design, tricky code or math, experiments that must execute and produce artifacts, final conclusions. Session model (fable or opus) at xhigh effort, full tools.
+description: Autoresearch top-tier worker — cornerstone subtasks that need real thinking: design, tricky code or math, experiments that must execute and produce artifacts, final conclusions. Session model (fable or opus) at xhigh effort, full tools. At most ONE mars_top runs at a time (fable is scarce); a second concurrent top-tier worker is mars_top_opus.
 model: inherit
 effort: xhigh
 ---
