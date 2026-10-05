@@ -148,6 +148,14 @@ plain = os.path.join(T, "plain")
 os.makedirs(plain)
 r = stop_hook(500000, plain)
 check("watch: non-research repo silent", r.stdout.strip() == "")
+deep = os.path.join(research, "agent_notes", "tasks", "2026-10-05_09-00_deep", "sub")
+os.makedirs(deep)
+r = stop_hook(400000, deep, sid="s_deep")
+check("watch: hook cwd inside a task folder (after a cd) still nudges",
+      "[context-watch]" in r.stdout, r.stdout[:80])
+check("watch: state lives at the repo root, not under the deep cwd",
+      any(n.startswith("ctx_") for n in os.listdir(os.path.join(research, ".claude", "autoresearch")))
+      and not os.path.exists(os.path.join(deep, ".claude")))
 
 write_transcript(500000)
 r = run([sys.executable, os.path.join(HK, "context_watch.py")],

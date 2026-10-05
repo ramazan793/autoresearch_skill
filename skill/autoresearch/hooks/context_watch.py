@@ -13,7 +13,7 @@ touch each other's state.
    agent_notes/ gate: the hook's cwd is Claude Code's tracked shell cwd, not
    necessarily a repo root (see references/self_compact.md).
    Log: ~/.claude/autoresearch/deliver.log.
-2. Context watch (Stop and PostToolUse), state in <cwd>/.claude/autoresearch/:
+2. Context watch (Stop and PostToolUse), state in <repo>/.claude/autoresearch/:
    nudge the agent to run the compact
    protocol when session context exceeds AUTORESEARCH_CTX_LIMIT tokens
    (default 350000). Stop: blocks the stop with the nudge as reason.
@@ -30,8 +30,9 @@ touch each other's state.
    first measurement, so a limit below the floor cannot livelock successors.
    Subagents never compact and never deliver.
 
-Jobs 2 and 3 are active only in repos that have an agent_notes/ dir. Fails
-open on any error.
+Jobs 2 and 3 are active only in research repos: the first directory from the
+hook's cwd upwards that has agent_notes/ (the tracked shell cwd may sit in a
+task folder or any subdirectory after a `cd`). Fails open on any error.
 """
 import json
 import os
@@ -97,6 +98,18 @@ def remember_task(key, blob, cwd):
         os.replace(path + ".tmp", path)
     except OSError:
         pass
+
+
+def research_repo(start):
+    """First directory from `start` upwards that has agent_notes/, or None."""
+    d = os.path.realpath(start)
+    while True:
+        if os.path.isdir(os.path.join(d, "agent_notes")):
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
 
 
 def pane_key():
@@ -267,9 +280,10 @@ def main():
             deliver_request(cwd, request, pane)
             return
 
-    if not os.path.isdir(os.path.join(cwd, "agent_notes")):
+    repo = research_repo(cwd)
+    if not repo:
         return
-    state_dir = os.path.join(cwd, ".claude", "autoresearch")
+    state_dir = os.path.join(repo, ".claude", "autoresearch")
     if data.get("agent_id"):
         if event == "PostToolUse":
             watch_subagent(data, state_dir)
