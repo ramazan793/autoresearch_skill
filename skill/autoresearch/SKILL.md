@@ -19,9 +19,10 @@ Helper scripts live in `~/.claude/skills/autoresearch/scripts/`.
 
 ## 0. Task lifecycle
 
-intake interview → `PLAN.md` + task `STATE.md` + index line → execute
-(checkpoint the task `STATE.md` at milestones) → `REPORT.md` → cleanup + commit
-→ drop the index line → (compact protocol, only at a task boundary).
+intake interview → `PLAN.md` + task `STATE.md` + index line (+ the hourly
+resume check of §11 for long multi-worker tasks) → execute (checkpoint the
+task `STATE.md` at milestones) → `REPORT.md` → cleanup + commit → drop the
+index line → (compact protocol, only at a task boundary).
 
 ## 1. Task intake — anti-lazy interview (mandatory)
 
@@ -150,6 +151,7 @@ never keep refining a stale subagent).
   (moves into repo `trash/`; the user empties it). Never delete — always trash.
 - Ensure `.gitignore` covers `trash/`, `.claude/`, `agent_notes/**/vis/` and
   `agent_notes/**/artifacts/`. Commit the task branch (notes included).
+- `CronDelete` the task's hourly resume check (§11) if one was created.
 
 ## 9. Compact protocol
 
@@ -170,3 +172,18 @@ session).
 Nothing is ground truth: not conclusions in `agent_notes/` (prior agents wrote
 them), not the user's own conclusions. Sanity-check reasoning and numbers from
 raw metrics and actual execution paths, not from names, defaults, or memory.
+
+## 11. Usage-limit pauses: checkpoint, then auto-resume
+
+Follow `references/usage_limit_resume.md`. When the harness announces a usage
+limit: finish the piece in hand, **`TaskStop` every running subagent** (they do
+not see the announcement and would be cut off mid-step; a stopped agent keeps
+its transcript and resumes with `SendMessage`), write the task `STATE.md` with
+a `## Running (paused <time> by the usage limit)` block (per stopped agent:
+what it did, its notes/HANDOFF path, resume-in-place or fresh successor; plus
+the background jobs, which survive on their own), and tell the user. Never
+spawn after the announcement. For every task that runs subagents or jobs for
+more than an hour, create the **hourly in-session resume check** at task start
+(`CronCreate`, off-minute, prompt in the reference): it re-reads the index and
+each paused task's `STATE.md` and restarts the stopped workers once the limit
+has reset. Delete it at cleanup (§8).
